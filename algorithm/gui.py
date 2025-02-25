@@ -25,6 +25,10 @@ class TSPGUI:
         self.best_distance = float("inf")
         self.best_path = []
 
+        # Contiendra la solution "best" qu'on veut sauvegarder
+        # On la mettra à jour automatiquement dès qu'une meilleure solution est trouvée
+        self.best_solution_saved = None  # (path, dist)
+
         # Animation
         self.current_path = []
         self.current_segment_index = 0
@@ -66,8 +70,6 @@ class TSPGUI:
 
         # ---- Cadre de contrôles
         self.control_frame = ttk.Frame(self.root, style="TFrame")
-        # On n'utilise pas pack(side=..., fill=..., padx=...) sur root directement,
-        # mais sur ce control_frame
         self.control_frame.pack(side=tk.RIGHT, fill="y", padx=10, pady=10)
 
         # Bouton "Générer Villes"
@@ -102,7 +104,7 @@ class TSPGUI:
         # Bouton "Automatique"
         self.btn_auto = ttk.Button(
             self.control_frame,
-            text="Automatique",
+            text="Mode Automatique",
             command=self.start_auto
         )
         self.btn_auto.pack(pady=5, fill="x")
@@ -110,10 +112,27 @@ class TSPGUI:
         # Bouton "Stop"
         self.btn_stop = ttk.Button(
             self.control_frame,
-            text="Stop",
+            text="Stop Mode Automatic",
             command=self.stop_auto
         )
         self.btn_stop.pack(pady=5, fill="x")
+
+        # -------------------------------------------------------
+        # Nouveaux boutons : Dessiner la solution sauvegardée
+        # -------------------------------------------------------
+        self.btn_draw_saved_overlay = ttk.Button(
+            self.control_frame,
+            text="Dessiner Best (Overlay)",
+            command=lambda: self.draw_saved_solution(overlay=True)
+        )
+        self.btn_draw_saved_overlay.pack(pady=5, fill="x")
+
+        self.btn_draw_saved_alone = ttk.Button(
+            self.control_frame,
+            text="Dessiner Best (Alone)",
+            command=lambda: self.draw_saved_solution(overlay=False)
+        )
+        self.btn_draw_saved_alone.pack(pady=5, fill="x")
 
         # Label info
         self.info_label = ttk.Label(self.control_frame, text="Meilleure distance: -", style="TLabel")
@@ -165,6 +184,8 @@ class TSPGUI:
         self.current_path = []
         self.is_animating = False
 
+        self.best_solution_saved = None  # on efface aussi l'enregistrement
+
         self.canvas.delete("all")
         self.draw_canvas_bg_gradient()
 
@@ -186,7 +207,7 @@ class TSPGUI:
             )
             self.canvas.create_text(
                 x, y - 12,
-                text=str(i + 1),  # i + 1 si on veut un affichage "1-based"
+                text=str(i + 1),  # i + 1 => "ville #1" pour l'indice 0
                 fill="#ffffff",
                 font=("Helvetica", 9, "bold")
             )
@@ -229,33 +250,41 @@ class TSPGUI:
         """
         Lance l'algorithme (GA, ACO ou Hybride) UNE SEULE FOIS,
         compare avec la meilleure solution, et éventuellement anime.
+
+        On récupère (best_path, best_dist), mais on ne garde que best_path
+        pour dessiner.
         """
         if not self.cities or self.is_animating:
             return
 
         algo = self.algo_var.get()
         if algo == "GA":
-            new_path = run_genetic_algorithm(self.cities)
+            best_path_ga, dist_ga = run_genetic_algorithm(self.cities)
+            new_path = best_path_ga
         elif algo == "ACO":
-            new_path = run_ant_colony(self.cities)
+            best_path_aco, dist_aco = run_ant_colony(self.cities)
+            new_path = best_path_aco
         else:
-            # Hybride = GA puis ACO
-            path_ga = run_genetic_algorithm(self.cities)
-            new_path = run_ant_colony(self.cities, initial_path=path_ga)
+            # Hybride => GA puis ACO (amorçage)
+            ga_path, ga_dist = run_genetic_algorithm(self.cities)
+            aco_path, aco_dist = run_ant_colony(self.cities, initial_path=ga_path)
+            new_path = aco_path
 
         self.check_and_update_best(new_path, is_auto=False)
 
     def check_and_update_best(self, path, is_auto=False):
         """
         Compare la solution 'path' avec la meilleure distance.
-        Si c'est meilleur, animation; sinon, on trace vite fait en orange.
+        Si c'est meilleur, on anime; sinon, on trace vite fait en orange.
+
+        Si c'est vraiment meilleur => on l'enregistre aussi dans best_solution_saved.
         """
         dist = self.compute_distance(path)
         if dist < self.best_distance:
             self.best_distance = dist
             self.best_path = path
 
-            # On redessine le fond + villes
+            # On redessine
             self.canvas.delete("all")
             self.draw_canvas_bg_gradient()
             self.draw_cities()
@@ -266,14 +295,17 @@ class TSPGUI:
             self.is_animating = True
             self.update_info_label(f"Nouvelle meilleure solution ! (dist={dist:.2f})")
 
+            # On ENREGISTRE cette solution comme "best solution saved"
+            self.best_solution_saved = (path[:], dist)
+
             self.animate_path(is_auto=is_auto)
         else:
+            # Chemin non meilleur => on dessine en orange
             self.draw_quick_path(path, color="#ffa600")
             self.update_info_label(f"Solution non meilleure (dist={dist:.2f})")
 
-            # Si on est en auto => planifier la suite
+            # Si on est en auto => planifier la suite après 5 s
             if is_auto and self.auto_running:
-                # Attendre 5s puis relancer
                 self.root.after(5000, self.auto_loop)
 
     # =======================================================
@@ -320,7 +352,10 @@ class TSPGUI:
         self.canvas.create_line(x1, y1, x2, y2, fill=color, width=3)
 
     def draw_quick_path(self, path, color="#ff7f00"):
-        """Trace instantanément un chemin dans la couleur donnée."""
+        """
+        Trace instantanément un chemin dans la couleur donnée,
+        en effaçant d'abord le canevas.
+        """
         self.canvas.delete("all")
         self.draw_canvas_bg_gradient()
         self.draw_cities()
@@ -331,7 +366,6 @@ class TSPGUI:
             x2, y2 = self.cities[path[i+1]]
             self.canvas.create_line(x1, y1, x2, y2, fill=color, width=2)
         if n > 1:
-            # fermer la tournée
             x1, y1 = self.cities[path[-1]]
             x2, y2 = self.cities[path[0]]
             self.canvas.create_line(x1, y1, x2, y2, fill=color, width=2)
@@ -357,15 +391,59 @@ class TSPGUI:
             return
         algo = self.algo_var.get()
         if algo == "GA":
-            new_path = run_genetic_algorithm(self.cities)
+            (best_p, dist_p) = run_genetic_algorithm(self.cities)
+            new_path = best_p
         elif algo == "ACO":
-            new_path = run_ant_colony(self.cities)
+            (best_p, dist_p) = run_ant_colony(self.cities)
+            new_path = best_p
         else:
-            path_ga = run_genetic_algorithm(self.cities)
-            new_path = run_ant_colony(self.cities, initial_path=path_ga)
+            # Hybride
+            (ga_path, ga_dist) = run_genetic_algorithm(self.cities)
+            (aco_path, aco_dist) = run_ant_colony(self.cities, initial_path=ga_path)
+            new_path = aco_path
 
         self.check_and_update_best(new_path, is_auto=True)
 
     def stop_auto(self):
         """Arrête le mode automatique."""
         self.auto_running = False
+
+    # =======================================================
+    # 7) AFFICHER LA SOLUTION SAUVEGARDÉE
+    # =======================================================
+    def draw_saved_solution(self, overlay=True):
+        """
+        Dessine la solution sauvegardée (self.best_solution_saved).
+        - overlay=True => on la superpose sur le dessin actuel,
+        - overlay=False => on efface tout d'abord puis on la dessine seule.
+        """
+        if not self.best_solution_saved:
+            self.update_info_label("Aucune solution enregistrée à dessiner.")
+            return
+
+        saved_path, saved_dist = self.best_solution_saved
+
+        if not overlay:
+            # On efface tout
+            self.canvas.delete("all")
+            self.draw_canvas_bg_gradient()
+            self.draw_cities()
+
+        # On la dessine en vert
+        self.draw_quick_path_custom(saved_path, color="#00FF00", width=3)
+        self.update_info_label(f"Solution enregistrée dessinée (dist={saved_dist:.2f}).")
+
+    def draw_quick_path_custom(self, path, color="#00FF00", width=3):
+        """
+        Trace un cycle path sur le canevas en color, SANS effacer ni redessiner avant.
+        """
+        n = len(path)
+        for i in range(n - 1):
+            x1, y1 = self.cities[path[i]]
+            x2, y2 = self.cities[path[i+1]]
+            self.canvas.create_line(x1, y1, x2, y2, fill=color, width=width)
+
+        if n > 1:
+            x1, y1 = self.cities[path[-1]]
+            x2, y2 = self.cities[path[0]]
+            self.canvas.create_line(x1, y1, x2, y2, fill=color, width=width)
