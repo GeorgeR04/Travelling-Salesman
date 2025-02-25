@@ -11,20 +11,21 @@ from aco import run_ant_colony
 WINDOW_WIDTH = 1200
 WINDOW_HEIGHT = 800
 
-
 class TSPGUI:
     def __init__(self, root, num_cities=10):
         self.root = root
         self.root.title("TSP Synthwave - GA & ACO")
 
+        # -- Configuration de la fenêtre racine, pour ne plus avoir de fond blanc
+        self.root.configure(bg="#2c2c2c")  # gris foncé
+
         self.num_cities = num_cities
         self.cities = []
 
-        # Meilleure solution trouvée
         self.best_distance = float("inf")
         self.best_path = []
 
-        # Animation en cours
+        # Animation
         self.current_path = []
         self.current_segment_index = 0
         self.is_animating = False
@@ -33,26 +34,40 @@ class TSPGUI:
         self.auto_running = False
 
         # ==========================================================
-        # 1) Configuration du style pour un look plus "moderne"
+        # Configuration du style global (ttk) pour tout en gris
         # ==========================================================
         style = ttk.Style()
         style.theme_use("clam")
-        # Couleur de fond du Frame principal (contrôles)
+
+        # Couleur de fond générale pour cadres (Frame) et labels
         style.configure("TFrame", background="#2c2c2c")
-        # Label
         style.configure("TLabel", background="#2c2c2c", foreground="white", font=("Helvetica", 11))
-        # Boutons
         style.configure("TButton", background="#3a3a3a", foreground="white", font=("Helvetica", 10, "bold"))
 
+        # Combobox : changer le fond (fieldbackground) et le texte (foreground)
+        style.configure("TCombobox",
+                        fieldbackground="#3a3a3a",
+                        background="#3a3a3a",
+                        foreground="white")
+        # Pour que la liste déroulante soit aussi sombre, il faut parfois configurer map :
+        style.map("TCombobox",
+            fieldbackground=[("readonly", "#3a3a3a")],
+            foreground=[("readonly", "white")],
+            background=[("readonly", "#3a3a3a")]
+        )
+
         # ---- Canevas principal (fond dégradé)
-        self.canvas = tk.Canvas(self.root, width=WINDOW_WIDTH, height=WINDOW_HEIGHT)
+        self.canvas = tk.Canvas(self.root, width=WINDOW_WIDTH, height=WINDOW_HEIGHT, highlightthickness=0)
+        # highlightthickness=0 pour enlever la bordure blanche
         self.canvas.pack(side=tk.LEFT, fill="both", expand=True)
 
         # Dessin initial du dégradé
         self.draw_canvas_bg_gradient()
 
-        # ---- Cadre de contrôles (à droite)
+        # ---- Cadre de contrôles
         self.control_frame = ttk.Frame(self.root, style="TFrame")
+        # On n'utilise pas pack(side=..., fill=..., padx=...) sur root directement,
+        # mais sur ce control_frame
         self.control_frame.pack(side=tk.RIGHT, fill="y", padx=10, pady=10)
 
         # Bouton "Générer Villes"
@@ -66,11 +81,17 @@ class TSPGUI:
         # Choix d'algorithme
         self.algo_var = tk.StringVar(value="GA")
         ttk.Label(self.control_frame, text="Choisir Algorithme:", style="TLabel").pack(pady=2)
-        self.algo_menu = ttk.Combobox(self.control_frame, textvariable=self.algo_var, values=["GA", "ACO", "Hybride"])
+
+        self.algo_menu = ttk.Combobox(
+            self.control_frame,
+            textvariable=self.algo_var,
+            values=["GA","ACO","Hybride"],
+            state="readonly"  # pour l'apparence plus stable
+        )
         self.algo_menu.pack(pady=5, fill="x")
         self.algo_menu.current(0)
 
-        # Bouton "Lancer" (une fois)
+        # Bouton "Lancer"
         self.btn_run_once = ttk.Button(
             self.control_frame,
             text="Lancer",
@@ -102,7 +123,7 @@ class TSPGUI:
         self.generate_cities()
 
     # =======================================================
-    # 1) FOND EN DÉGRADÉ DE GRIS
+    # 1) FOND DÉGRADÉ DE GRIS DANS LE CANEVAS
     # =======================================================
     def draw_canvas_bg_gradient(self):
         """
@@ -112,18 +133,18 @@ class TSPGUI:
         self.canvas.delete("gradient_bg")
 
         start_color = (0x2D, 0x2D, 0x2D)  # #2d2d2d
-        end_color = (0x4D, 0x4D, 0x4D)  # #4d4d4d
+        end_color   = (0x4D, 0x4D, 0x4D)  # #4d4d4d
         steps = 60
 
         for i in range(steps):
             f = i / (steps - 1)
-            r = int(start_color[0] + f * (end_color[0] - start_color[0]))
-            g = int(start_color[1] + f * (end_color[1] - start_color[1]))
-            b = int(start_color[2] + f * (end_color[2] - start_color[2]))
+            r = int(start_color[0] + f*(end_color[0] - start_color[0]))
+            g = int(start_color[1] + f*(end_color[1] - start_color[1]))
+            b = int(start_color[2] + f*(end_color[2] - start_color[2]))
             color_hex = f"#{r:02x}{g:02x}{b:02x}"
 
             y_start = int(WINDOW_HEIGHT * i / steps)
-            y_end = int(WINDOW_HEIGHT * (i + 1) / steps)
+            y_end   = int(WINDOW_HEIGHT * (i+1) / steps)
 
             self.canvas.create_rectangle(
                 0, y_start,
@@ -137,7 +158,7 @@ class TSPGUI:
     # 2) GÉNÉRATION ET AFFICHAGE DES VILLES
     # =======================================================
     def generate_cities(self):
-        """Génère des villes aléatoirement et réinitialise la meilleure distance."""
+        """Génère des villes aléatoirement, réinitialise la meilleure distance."""
         self.cities.clear()
         self.best_distance = float("inf")
         self.best_path = []
@@ -156,7 +177,7 @@ class TSPGUI:
         self.update_info_label("Nouvelles villes générées.")
 
     def draw_cities(self):
-        """Dessine les points (villes) sur le canevas."""
+        """Dessine les points (villes) sur le canevas (petits cercles)."""
         for i, (x, y) in enumerate(self.cities):
             r = 6
             self.canvas.create_oval(
@@ -165,7 +186,7 @@ class TSPGUI:
             )
             self.canvas.create_text(
                 x, y - 12,
-                text=str(i),
+                text=str(i + 1),  # i + 1 si on veut un affichage "1-based"
                 fill="#ffffff",
                 font=("Helvetica", 9, "bold")
             )
@@ -183,7 +204,7 @@ class TSPGUI:
             x2, y2 = self.cities[path[i + 1]]
             dist += math.dist((x1, y1), (x2, y2))
 
-        # boucler
+        # boucler pour fermer la tournée
         x1, y1 = self.cities[path[-1]]
         x2, y2 = self.cities[path[0]]
         dist += math.dist((x1, y1), (x2, y2))
@@ -210,7 +231,6 @@ class TSPGUI:
         compare avec la meilleure solution, et éventuellement anime.
         """
         if not self.cities or self.is_animating:
-            # si on est en pleine animation, on évite d'en lancer une autre
             return
 
         algo = self.algo_var.get()
@@ -229,9 +249,6 @@ class TSPGUI:
         """
         Compare la solution 'path' avec la meilleure distance.
         Si c'est meilleur, animation; sinon, on trace vite fait en orange.
-
-        is_auto : pour savoir si on est en mode automatique,
-                  afin de relancer la prochaine itération à la fin.
         """
         dist = self.compute_distance(path)
         if dist < self.best_distance:
@@ -250,25 +267,20 @@ class TSPGUI:
             self.update_info_label(f"Nouvelle meilleure solution ! (dist={dist:.2f})")
 
             self.animate_path(is_auto=is_auto)
-
         else:
-            # Chemin non meilleur => on dessine en orange rapidement
             self.draw_quick_path(path, color="#ffa600")
             self.update_info_label(f"Solution non meilleure (dist={dist:.2f})")
 
-            # Si on est en auto => on planifie la suite après 5 secondes
+            # Si on est en auto => planifier la suite
             if is_auto and self.auto_running:
+                # Attendre 5s puis relancer
                 self.root.after(5000, self.auto_loop)
 
     # =======================================================
     # 5) ANIMATION « SYNTHWAVE »
     # =======================================================
     def animate_path(self, is_auto=False):
-        """
-        Dessine progressivement le chemin self.current_path
-        (200 ms par segment).
-        """
-        # Si on a stoppé entre-temps
+        """Dessine progressivement la tournée self.current_path (200 ms par segment)."""
         if not self.is_animating:
             return
 
@@ -277,37 +289,32 @@ class TSPGUI:
         n = len(path)
 
         if seg_idx >= n:
-            # on ferme la boucle
+            # fermer la boucle
             self.draw_synthwave_line(path[-1], path[0], seg_idx)
             self.is_animating = False
             self.update_info_label("Animation terminée.")
 
-            # Si on est en mode auto => on attend 5 secondes puis on relance
             if is_auto and self.auto_running:
                 self.root.after(5000, self.auto_loop)
-
             return
 
-        # On dessine le segment
         if seg_idx > 0:
             self.draw_synthwave_line(path[seg_idx - 1], path[seg_idx], seg_idx - 1)
 
         self.current_segment_index += 1
-
         self.root.after(200, lambda: self.animate_path(is_auto=is_auto))
 
     def draw_synthwave_line(self, i1, i2, seg_idx):
         """Trace un segment coloré selon une palette néon."""
         palette = [
-            "#f72585",  # rose
-            "#b5179e",  # rose violet
-            "#7209b7",  # violet
-            "#3a0ca3",  # bleu foncé
-            "#4361ee",  # bleu
-            "#4cc9f0"  # turquoise
+            "#f72585",  # rose flashy
+            "#b5179e",
+            "#7209b7",
+            "#3a0ca3",
+            "#4361ee",
+            "#4cc9f0"
         ]
         color = palette[seg_idx % len(palette)]
-
         x1, y1 = self.cities[i1]
         x2, y2 = self.cities[i2]
         self.canvas.create_line(x1, y1, x2, y2, fill=color, width=3)
@@ -321,11 +328,10 @@ class TSPGUI:
         n = len(path)
         for i in range(n - 1):
             x1, y1 = self.cities[path[i]]
-            x2, y2 = self.cities[path[i + 1]]
+            x2, y2 = self.cities[path[i+1]]
             self.canvas.create_line(x1, y1, x2, y2, fill=color, width=2)
-
-        # fermer la boucle
         if n > 1:
+            # fermer la tournée
             x1, y1 = self.cities[path[-1]]
             x2, y2 = self.cities[path[0]]
             self.canvas.create_line(x1, y1, x2, y2, fill=color, width=2)
@@ -340,18 +346,15 @@ class TSPGUI:
             self.auto_loop()
 
     def auto_loop(self):
-        """Exécute l'algo choisi, puis animation; attend 5s, recommence..."""
+        """Exécute l'algo choisi, attend la fin, relance après 5s..."""
         if not self.auto_running:
             return
-
-        # On appelle une version "auto" du run pour savoir qu'il faut enchaîner
         self.run_auto_iteration()
 
     def run_auto_iteration(self):
-        """Comme run_once(), mais on signale is_auto=True pour relancer après animation."""
+        """Lance l'algo (GA/ACO/Hybride), is_auto=True, pour enchaîner."""
         if not self.cities or self.is_animating:
-            return  # attend la fin de l'animation en cours
-
+            return
         algo = self.algo_var.get()
         if algo == "GA":
             new_path = run_genetic_algorithm(self.cities)
@@ -361,8 +364,6 @@ class TSPGUI:
             path_ga = run_genetic_algorithm(self.cities)
             new_path = run_ant_colony(self.cities, initial_path=path_ga)
 
-        # On vérifie si c'est meilleur, etc.
-        # on passe is_auto=True, ainsi on enchaînera un after(5000) après la fin
         self.check_and_update_best(new_path, is_auto=True)
 
     def stop_auto(self):
