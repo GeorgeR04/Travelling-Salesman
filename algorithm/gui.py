@@ -1,35 +1,33 @@
-# gui.py
-
 import tkinter as tk
 from tkinter import ttk
 import random
 import math
 
-from ga import run_genetic_algorithm
-from aco import run_ant_colony
+# Importe la GA et l'ACO depuis leurs fichiers respectifs
+from ga import GeneticAlgorithm
+from aco import AntColony
 
-WINDOW_WIDTH = 1200
-WINDOW_HEIGHT = 800
+class TSPApp(tk.Tk):
+    WINDOW_WIDTH = 1200
+    WINDOW_HEIGHT = 800
 
-class TSPGUI:
-    def __init__(self, root, num_cities=10):
-        self.root = root
-        self.root.title("TSP Synthwave - GA & ACO")
+    # Rayon de détection pour le survol de la souris
+    HOVER_RADIUS = 10
 
-        # -- Configuration de la fenêtre racine, pour ne plus avoir de fond blanc
-        self.root.configure(bg="#2c2c2c")  # gris foncé
+    def __init__(self, num_cities=10):
+        super().__init__()
+        self.title("TSP Synthwave - GA & ACO")
+        self.configure(bg="#2c2c2c")
 
         self.num_cities = num_cities
         self.cities = []
 
+        # Suivi de la meilleure distance & chemin
         self.best_distance = float("inf")
         self.best_path = []
-
-        # Contiendra la solution "best" qu'on veut sauvegarder
-        # On la mettra à jour automatiquement dès qu'une meilleure solution est trouvée
         self.best_solution_saved = None  # (path, dist)
 
-        # Animation
+        # Variables pour l'animation
         self.current_path = []
         self.current_segment_index = 0
         self.is_animating = False
@@ -37,282 +35,238 @@ class TSPGUI:
         # Mode automatique
         self.auto_running = False
 
-        # ==========================================================
-        # Configuration du style global (ttk) pour tout en gris
-        # ==========================================================
+        # Configuration du style
+        self._setup_style()
+
+        # Configuration de l'interface
+        self._setup_ui()
+
+        # Génération initiale de villes
+        self._generate_cities()
+
+    ################################################################
+    # 1) Configuration du style et interface
+    ################################################################
+    def _setup_style(self):
         style = ttk.Style()
         style.theme_use("clam")
 
-        # Couleur de fond générale pour cadres (Frame) et labels
         style.configure("TFrame", background="#2c2c2c")
         style.configure("TLabel", background="#2c2c2c", foreground="white", font=("Helvetica", 11))
         style.configure("TButton", background="#3a3a3a", foreground="white", font=("Helvetica", 10, "bold"))
-
-        # Combobox : changer le fond (fieldbackground) et le texte (foreground)
         style.configure("TCombobox",
                         fieldbackground="#3a3a3a",
                         background="#3a3a3a",
                         foreground="white")
-        # Pour que la liste déroulante soit aussi sombre, il faut parfois configurer map :
         style.map("TCombobox",
-            fieldbackground=[("readonly", "#3a3a3a")],
-            foreground=[("readonly", "white")],
-            background=[("readonly", "#3a3a3a")]
-        )
+                  fieldbackground=[("readonly", "#3a3a3a")],
+                  foreground=[("readonly", "white")],
+                  background=[("readonly", "#3a3a3a")])
 
-        # ---- Canevas principal (fond dégradé)
-        self.canvas = tk.Canvas(self.root, width=WINDOW_WIDTH, height=WINDOW_HEIGHT, highlightthickness=0)
-        # highlightthickness=0 pour enlever la bordure blanche
+    def _setup_ui(self):
+        # Canevas principal
+        self.canvas = tk.Canvas(
+            self, width=self.WINDOW_WIDTH, height=self.WINDOW_HEIGHT,
+            highlightthickness=0
+        )
         self.canvas.pack(side=tk.LEFT, fill="both", expand=True)
 
-        # Dessin initial du dégradé
-        self.draw_canvas_bg_gradient()
+        # Événement <Motion> pour détecter la souris et afficher (x,y)
+        self.canvas.bind("<Motion>", self._on_mouse_move)
 
-        # ---- Cadre de contrôles
-        self.control_frame = ttk.Frame(self.root, style="TFrame")
-        self.control_frame.pack(side=tk.RIGHT, fill="y", padx=10, pady=10)
+        self._draw_canvas_bg_gradient()
 
-        # Bouton "Générer Villes"
-        self.btn_generate = ttk.Button(
-            self.control_frame,
-            text="Générer Villes",
-            command=self.generate_cities
-        )
-        self.btn_generate.pack(pady=5, fill="x")
+        # Cadre de commandes à droite
+        controls = ttk.Frame(self)
+        controls.pack(side=tk.RIGHT, fill="y", padx=10, pady=10)
 
-        # Choix d'algorithme
+        ttk.Button(controls, text="Générer Villes", command=self._generate_cities).pack(fill="x", pady=5)
+
+        ttk.Label(controls, text="Choisir Algorithme:").pack(pady=2)
         self.algo_var = tk.StringVar(value="GA")
-        ttk.Label(self.control_frame, text="Choisir Algorithme:", style="TLabel").pack(pady=2)
+        algo_menu = ttk.Combobox(controls, textvariable=self.algo_var,
+                                 values=["GA", "ACO", "Hybride"], state="readonly")
+        algo_menu.pack(fill="x", pady=5)
 
-        self.algo_menu = ttk.Combobox(
-            self.control_frame,
-            textvariable=self.algo_var,
-            values=["GA","ACO","Hybride"],
-            state="readonly"  # pour l'apparence plus stable
-        )
-        self.algo_menu.pack(pady=5, fill="x")
-        self.algo_menu.current(0)
+        ttk.Button(controls, text="Lancer", command=self._run_once).pack(fill="x", pady=5)
+        ttk.Button(controls, text="Mode Automatique", command=self._start_auto).pack(fill="x", pady=5)
+        ttk.Button(controls, text="Stop Mode Automatic", command=self._stop_auto).pack(fill="x", pady=5)
 
-        # Bouton "Lancer"
-        self.btn_run_once = ttk.Button(
-            self.control_frame,
-            text="Lancer",
-            command=self.run_once
-        )
-        self.btn_run_once.pack(pady=5, fill="x")
+        ttk.Button(controls, text="Dessiner Best (Overlay)",
+                   command=lambda: self._draw_saved_solution(overlay=True)).pack(fill="x", pady=5)
+        ttk.Button(controls, text="Dessiner Best (Alone)",
+                   command=lambda: self._draw_saved_solution(overlay=False)).pack(fill="x", pady=5)
 
-        # Bouton "Automatique"
-        self.btn_auto = ttk.Button(
-            self.control_frame,
-            text="Mode Automatique",
-            command=self.start_auto
-        )
-        self.btn_auto.pack(pady=5, fill="x")
-
-        # Bouton "Stop"
-        self.btn_stop = ttk.Button(
-            self.control_frame,
-            text="Stop Mode Automatic",
-            command=self.stop_auto
-        )
-        self.btn_stop.pack(pady=5, fill="x")
-
-        # -------------------------------------------------------
-        # Nouveaux boutons : Dessiner la solution sauvegardée
-        # -------------------------------------------------------
-        self.btn_draw_saved_overlay = ttk.Button(
-            self.control_frame,
-            text="Dessiner Best (Overlay)",
-            command=lambda: self.draw_saved_solution(overlay=True)
-        )
-        self.btn_draw_saved_overlay.pack(pady=5, fill="x")
-
-        self.btn_draw_saved_alone = ttk.Button(
-            self.control_frame,
-            text="Dessiner Best (Alone)",
-            command=lambda: self.draw_saved_solution(overlay=False)
-        )
-        self.btn_draw_saved_alone.pack(pady=5, fill="x")
-
-        # Label info
-        self.info_label = ttk.Label(self.control_frame, text="Meilleure distance: -", style="TLabel")
+        self.info_label = ttk.Label(controls, text="Meilleure distance: -")
         self.info_label.pack(pady=10)
 
-        # Générer les villes initiales
-        self.generate_cities()
+        # Label pour afficher la position de la ville survolée
+        self.hover_label = ttk.Label(controls, text="Survol: (x, y)")
+        self.hover_label.pack(pady=5)
 
-    # =======================================================
-    # 1) FOND DÉGRADÉ DE GRIS DANS LE CANEVAS
-    # =======================================================
-    def draw_canvas_bg_gradient(self):
-        """
-        Dessine un dégradé vertical du gris foncé au gris moyen
-        sur tout le canevas.
-        """
+    ################################################################
+    # 2) Fond dégradé du canevas
+    ################################################################
+    def _draw_canvas_bg_gradient(self):
+        """Dessine un dégradé vertical de gris sur tout le canevas."""
         self.canvas.delete("gradient_bg")
-
+        steps = 60
         start_color = (0x2D, 0x2D, 0x2D)  # #2d2d2d
         end_color   = (0x4D, 0x4D, 0x4D)  # #4d4d4d
-        steps = 60
 
         for i in range(steps):
             f = i / (steps - 1)
-            r = int(start_color[0] + f*(end_color[0] - start_color[0]))
-            g = int(start_color[1] + f*(end_color[1] - start_color[1]))
-            b = int(start_color[2] + f*(end_color[2] - start_color[2]))
+            r = int(start_color[0] + f * (end_color[0] - start_color[0]))
+            g = int(start_color[1] + f * (end_color[1] - start_color[1]))
+            b = int(start_color[2] + f * (end_color[2] - start_color[2]))
             color_hex = f"#{r:02x}{g:02x}{b:02x}"
 
-            y_start = int(WINDOW_HEIGHT * i / steps)
-            y_end   = int(WINDOW_HEIGHT * (i+1) / steps)
+            y_start = int(self.WINDOW_HEIGHT * i / steps)
+            y_end   = int(self.WINDOW_HEIGHT * (i + 1) / steps)
 
             self.canvas.create_rectangle(
                 0, y_start,
-                WINDOW_WIDTH, y_end,
+                self.WINDOW_WIDTH, y_end,
                 fill=color_hex,
                 outline=color_hex,
                 tags="gradient_bg"
             )
 
-    # =======================================================
-    # 2) GÉNÉRATION ET AFFICHAGE DES VILLES
-    # =======================================================
-    def generate_cities(self):
-        """Génère des villes aléatoirement, réinitialise la meilleure distance."""
-        self.cities.clear()
+    def _draw_scale(self):
+        """
+        Dessine une grille (ou axes) avec des repères pour montrer
+        les coordonnées (x, y). Ici, c’est une grille tous les 100 pixels.
+        """
+        step = 100
+        line_color = "#444444"
+        text_color = "#ffffff"
+
+        # Lignes verticales + label X
+        for x in range(0, self.WINDOW_WIDTH + 1, step):
+            self.canvas.create_line(x, 0, x, self.WINDOW_HEIGHT, fill=line_color, dash=(2, 2))
+            self.canvas.create_text(x + 15, 10, text=str(x), fill=text_color, font=("Helvetica", 9, "bold"))
+
+        # Lignes horizontales + label Y
+        for y in range(0, self.WINDOW_HEIGHT + 1, step):
+            self.canvas.create_line(0, y, self.WINDOW_WIDTH, y, fill=line_color, dash=(2, 2))
+            self.canvas.create_text(30, y + 10, text=str(y), fill=text_color, font=("Helvetica", 9, "bold"))
+
+    ################################################################
+    # 3) Génération des villes
+    ################################################################
+    def _generate_cities(self):
+        """Génère des villes en position aléatoire et réinitialise le meilleur chemin."""
+        margin = 50
+        self.cities = [
+            (
+                random.randint(margin, self.WINDOW_WIDTH - margin),
+                random.randint(margin, self.WINDOW_HEIGHT - margin)
+            )
+            for _ in range(self.num_cities)
+        ]
+
         self.best_distance = float("inf")
         self.best_path = []
         self.current_path = []
         self.is_animating = False
+        self.best_solution_saved = None
 
-        self.best_solution_saved = None  # on efface aussi l'enregistrement
+        self._refresh_canvas()
+        self._update_info_label("Nouvelles villes générées.")
 
-        self.canvas.delete("all")
-        self.draw_canvas_bg_gradient()
-
-        for _ in range(self.num_cities):
-            x = random.randint(50, WINDOW_WIDTH - 50)
-            y = random.randint(50, WINDOW_HEIGHT - 50)
-            self.cities.append((x, y))
-
-        self.draw_cities()
-        self.update_info_label("Nouvelles villes générées.")
-
-    def draw_cities(self):
-        """Dessine les points (villes) sur le canevas (petits cercles)."""
+    def _draw_cities(self):
         for i, (x, y) in enumerate(self.cities):
             r = 6
-            self.canvas.create_oval(
-                x - r, y - r, x + r, y + r,
-                fill="#f1f1f1", outline="#888888", width=1
-            )
-            self.canvas.create_text(
-                x, y - 12,
-                text=str(i + 1),  # i + 1 => "ville #1" pour l'indice 0
-                fill="#ffffff",
-                font=("Helvetica", 9, "bold")
-            )
+            self.canvas.create_oval(x - r, y - r, x + r, y + r,
+                                    fill="#f1f1f1", outline="#888888", width=1)
+            self.canvas.create_text(x, y - 12, text=str(i+1),
+                                    fill="#ffffff", font=("Helvetica", 9, "bold"))
 
-    # =======================================================
-    # 3) CALCUL DE DISTANCE
-    # =======================================================
-    def compute_distance(self, path):
-        """Calcule la distance totale (avec boucle) d'une permutation."""
-        if len(path) < 2:
-            return 0.0
-        dist = 0.0
-        for i in range(len(path) - 1):
+    def _refresh_canvas(self):
+        self.canvas.delete("all")
+        self._draw_canvas_bg_gradient()
+        self._draw_scale()  # <-- DESSINE LA GRILLE / ÉCHELLE
+        self._draw_cities()
+
+    ################################################################
+    # 4) Calcul distance et mise à jour des infos
+    ################################################################
+    def _compute_distance(self, path):
+        """Calcule la distance totale d'une tournée fermée."""
+        dist = 0
+        for i in range(-1, len(path) - 1):
             x1, y1 = self.cities[path[i]]
-            x2, y2 = self.cities[path[i + 1]]
+            x2, y2 = self.cities[path[i+1]]
             dist += math.dist((x1, y1), (x2, y2))
-
-        # boucler pour fermer la tournée
-        x1, y1 = self.cities[path[-1]]
-        x2, y2 = self.cities[path[0]]
-        dist += math.dist((x1, y1), (x2, y2))
-
         return dist
 
-    def update_info_label(self, msg=None):
-        """Met à jour l'affichage sur le label info (distance, message)."""
-        if self.best_distance < float("inf"):
+    def _update_info_label(self, msg=None):
+        if self.best_distance < float('inf'):
             dist_txt = f"Meilleure distance: {self.best_distance:.2f}"
         else:
             dist_txt = "Meilleure distance: -"
-        if msg:
-            self.info_label.config(text=f"{dist_txt}\n{msg}")
-        else:
-            self.info_label.config(text=dist_txt)
 
-    # =======================================================
-    # 4) LANCEMENT DES ALGORITHMES : GA / ACO / Hybride
-    # =======================================================
-    def run_once(self):
-        """
-        Lance l'algorithme (GA, ACO ou Hybride) UNE SEULE FOIS,
-        compare avec la meilleure solution, et éventuellement anime.
+        text = dist_txt if not msg else f"{dist_txt}\n{msg}"
+        self.info_label.config(text=text)
 
-        On récupère (best_path, best_dist), mais on ne garde que best_path
-        pour dessiner.
-        """
+    ################################################################
+    # 5) Lancer l’algorithme (GA / ACO / Hybride)
+    ################################################################
+    def _run_once(self):
+        """Exécute un algorithme choisi, une seule fois."""
         if not self.cities or self.is_animating:
             return
+        new_path = self._run_algorithm(self.algo_var.get())
+        self._check_and_update_best(new_path, is_auto=False)
 
-        algo = self.algo_var.get()
-        if algo == "GA":
-            best_path_ga, dist_ga = run_genetic_algorithm(self.cities)
-            new_path = best_path_ga
-        elif algo == "ACO":
-            best_path_aco, dist_aco = run_ant_colony(self.cities)
-            new_path = best_path_aco
+    def _run_algorithm(self, algo_name):
+        if algo_name == "GA":
+            ga = GeneticAlgorithm(self.cities)
+            best_path, _ = ga.run()
+            return best_path
+        elif algo_name == "ACO":
+            aco = AntColony(self.cities)
+            best_path, _ = aco.run()
+            return best_path
         else:
-            # Hybride => GA puis ACO (amorçage)
-            ga_path, ga_dist = run_genetic_algorithm(self.cities)
-            aco_path, aco_dist = run_ant_colony(self.cities, initial_path=ga_path)
-            new_path = aco_path
+            # Hybride: GA puis ACO avec la solution GA en "hint"
+            ga = GeneticAlgorithm(self.cities)
+            ga_path, _ = ga.run()
+            aco = AntColony(self.cities, initial_path=ga_path)
+            aco_path, _ = aco.run()
+            return aco_path
 
-        self.check_and_update_best(new_path, is_auto=False)
-
-    def check_and_update_best(self, path, is_auto=False):
-        """
-        Compare la solution 'path' avec la meilleure distance.
-        Si c'est meilleur, on anime; sinon, on trace vite fait en orange.
-
-        Si c'est vraiment meilleur => on l'enregistre aussi dans best_solution_saved.
-        """
-        dist = self.compute_distance(path)
+    def _check_and_update_best(self, path, is_auto=False):
+        """Vérifie si la solution courante est meilleure que la meilleure connue."""
+        dist = self._compute_distance(path)
         if dist < self.best_distance:
             self.best_distance = dist
             self.best_path = path
 
-            # On redessine
-            self.canvas.delete("all")
-            self.draw_canvas_bg_gradient()
-            self.draw_cities()
-
-            # Animation
+            self._refresh_canvas()
             self.current_path = path
             self.current_segment_index = 0
             self.is_animating = True
-            self.update_info_label(f"Nouvelle meilleure solution ! (dist={dist:.2f})")
+            self._update_info_label(f"Nouvelle meilleure solution ! (dist={dist:.2f})")
 
-            # On ENREGISTRE cette solution comme "best solution saved"
+            # Sauvegarde
             self.best_solution_saved = (path[:], dist)
 
-            self.animate_path(is_auto=is_auto)
+            # Lance l’animation
+            self._animate_path(is_auto=is_auto)
         else:
-            # Chemin non meilleur => on dessine en orange
-            self.draw_quick_path(path, color="#ffa600")
-            self.update_info_label(f"Solution non meilleure (dist={dist:.2f})")
+            # Chemin non meilleur, on l’affiche en orange brièvement
+            self._draw_path(path, color="#ffa600", width=2, clear_first=True)
+            self._update_info_label(f"Solution non meilleure (dist={dist:.2f})")
 
-            # Si on est en auto => planifier la suite après 5 s
+            # Si on est en auto, enchaîne
             if is_auto and self.auto_running:
-                self.root.after(5000, self.auto_loop)
+                self.after(5000, self._auto_loop)
 
-    # =======================================================
-    # 5) ANIMATION « SYNTHWAVE »
-    # =======================================================
-    def animate_path(self, is_auto=False):
-        """Dessine progressivement la tournée self.current_path (200 ms par segment)."""
+    ################################################################
+    # 6) Animation synthwave
+    ################################################################
+    def _animate_path(self, is_auto=False):
         if not self.is_animating:
             return
 
@@ -320,130 +274,111 @@ class TSPGUI:
         seg_idx = self.current_segment_index
         n = len(path)
 
+        # Quand on a tracé tous les segments, on ferme la boucle
         if seg_idx >= n:
-            # fermer la boucle
-            self.draw_synthwave_line(path[-1], path[0], seg_idx)
+            self._draw_synthwave_line(path[-1], path[0], seg_idx)
             self.is_animating = False
-            self.update_info_label("Animation terminée.")
-
+            self._update_info_label("Animation terminée.")
             if is_auto and self.auto_running:
-                self.root.after(5000, self.auto_loop)
+                self.after(5000, self._auto_loop)
             return
 
         if seg_idx > 0:
-            self.draw_synthwave_line(path[seg_idx - 1], path[seg_idx], seg_idx - 1)
+            self._draw_synthwave_line(path[seg_idx - 1], path[seg_idx], seg_idx - 1)
 
         self.current_segment_index += 1
-        self.root.after(200, lambda: self.animate_path(is_auto=is_auto))
+        self.after(200, lambda: self._animate_path(is_auto=is_auto))
 
-    def draw_synthwave_line(self, i1, i2, seg_idx):
-        """Trace un segment coloré selon une palette néon."""
+    def _draw_synthwave_line(self, i1, i2, seg_idx):
+        """Trace un segment coloré façon "néon synthwave"."""
         palette = [
-            "#f72585",  # rose flashy
-            "#b5179e",
-            "#7209b7",
-            "#3a0ca3",
-            "#4361ee",
-            "#4cc9f0"
+            "#f72585", "#b5179e", "#7209b7",
+            "#3a0ca3", "#4361ee", "#4cc9f0"
         ]
         color = palette[seg_idx % len(palette)]
         x1, y1 = self.cities[i1]
         x2, y2 = self.cities[i2]
         self.canvas.create_line(x1, y1, x2, y2, fill=color, width=3)
 
-    def draw_quick_path(self, path, color="#ff7f00"):
-        """
-        Trace instantanément un chemin dans la couleur donnée,
-        en effaçant d'abord le canevas.
-        """
-        self.canvas.delete("all")
-        self.draw_canvas_bg_gradient()
-        self.draw_cities()
-
-        n = len(path)
-        for i in range(n - 1):
-            x1, y1 = self.cities[path[i]]
-            x2, y2 = self.cities[path[i+1]]
-            self.canvas.create_line(x1, y1, x2, y2, fill=color, width=2)
-        if n > 1:
-            x1, y1 = self.cities[path[-1]]
-            x2, y2 = self.cities[path[0]]
-            self.canvas.create_line(x1, y1, x2, y2, fill=color, width=2)
-
-    # =======================================================
-    # 6) MODE AUTOMATIQUE
-    # =======================================================
-    def start_auto(self):
-        """Démarre le mode automatique (si pas déjà en cours)."""
+    ################################################################
+    # 7) Mode automatique
+    ################################################################
+    def _start_auto(self):
+        """Démarre un enchaînement infini d’exécutions."""
         if not self.auto_running:
             self.auto_running = True
-            self.auto_loop()
+            self._auto_loop()
 
-    def auto_loop(self):
-        """Exécute l'algo choisi, attend la fin, relance après 5s..."""
+    def _auto_loop(self):
+        """Boucle d’exécution automatique tant que self.auto_running est True."""
         if not self.auto_running:
             return
-        self.run_auto_iteration()
+        self._run_auto_iteration()
 
-    def run_auto_iteration(self):
-        """Lance l'algo (GA/ACO/Hybride), is_auto=True, pour enchaîner."""
+    def _run_auto_iteration(self):
         if not self.cities or self.is_animating:
             return
-        algo = self.algo_var.get()
-        if algo == "GA":
-            (best_p, dist_p) = run_genetic_algorithm(self.cities)
-            new_path = best_p
-        elif algo == "ACO":
-            (best_p, dist_p) = run_ant_colony(self.cities)
-            new_path = best_p
-        else:
-            # Hybride
-            (ga_path, ga_dist) = run_genetic_algorithm(self.cities)
-            (aco_path, aco_dist) = run_ant_colony(self.cities, initial_path=ga_path)
-            new_path = aco_path
+        new_path = self._run_algorithm(self.algo_var.get())
+        self._check_and_update_best(new_path, is_auto=True)
 
-        self.check_and_update_best(new_path, is_auto=True)
-
-    def stop_auto(self):
-        """Arrête le mode automatique."""
+    def _stop_auto(self):
         self.auto_running = False
 
-    # =======================================================
-    # 7) AFFICHER LA SOLUTION SAUVEGARDÉE
-    # =======================================================
-    def draw_saved_solution(self, overlay=True):
-        """
-        Dessine la solution sauvegardée (self.best_solution_saved).
-        - overlay=True => on la superpose sur le dessin actuel,
-        - overlay=False => on efface tout d'abord puis on la dessine seule.
-        """
+    ################################################################
+    # 8) Dessiner la solution sauvegardée
+    ################################################################
+    def _draw_saved_solution(self, overlay=True):
         if not self.best_solution_saved:
-            self.update_info_label("Aucune solution enregistrée à dessiner.")
+            self._update_info_label("Aucune solution enregistrée à dessiner.")
             return
-
         saved_path, saved_dist = self.best_solution_saved
 
         if not overlay:
-            # On efface tout
-            self.canvas.delete("all")
-            self.draw_canvas_bg_gradient()
-            self.draw_cities()
+            self._refresh_canvas()
 
         # On la dessine en vert
-        self.draw_quick_path_custom(saved_path, color="#00FF00", width=3)
-        self.update_info_label(f"Solution enregistrée dessinée (dist={saved_dist:.2f}).")
+        self._draw_path(saved_path, color="#00FF00", width=3, clear_first=False)
+        self._update_info_label(f"Solution enregistrée dessinée (dist={saved_dist:.2f}).")
 
-    def draw_quick_path_custom(self, path, color="#00FF00", width=3):
-        """
-        Trace un cycle path sur le canevas en color, SANS effacer ni redessiner avant.
-        """
-        n = len(path)
-        for i in range(n - 1):
+    ################################################################
+    # 9) DESSIN RAPIDE D’UN CHEMIN
+    ################################################################
+    def _draw_path(self, path, color="#ffa600", width=2, clear_first=True):
+        if clear_first:
+            self._refresh_canvas()
+
+        for i in range(len(path) - 1):
             x1, y1 = self.cities[path[i]]
             x2, y2 = self.cities[path[i+1]]
             self.canvas.create_line(x1, y1, x2, y2, fill=color, width=width)
 
-        if n > 1:
+        # Boucle fermée
+        if len(path) > 1:
             x1, y1 = self.cities[path[-1]]
             x2, y2 = self.cities[path[0]]
             self.canvas.create_line(x1, y1, x2, y2, fill=color, width=width)
+
+    ################################################################
+    # 10) DÉTECTION DE LA VILLE SURVOLÉE
+    ################################################################
+    def _on_mouse_move(self, event):
+        """
+        À chaque mouvement de souris dans le canevas, on regarde si
+        le pointeur est proche d’une ville (à moins de HOVER_RADIUS).
+        Si oui, on affiche (x,y) dans self.hover_label, sinon on remet un texte neutre.
+        """
+        found_city = False
+
+        for i, (cx, cy) in enumerate(self.cities):
+            dx = event.x - cx
+            dy = event.y - cy
+            # On compare la distance au carré pour éviter un sqrt()
+            if dx*dx + dy*dy <= self.HOVER_RADIUS * self.HOVER_RADIUS:
+                self.hover_label.config(
+                    text=f"Survol: Ville {i+1} (X={cx}, Y={cy})"
+                )
+                found_city = True
+                break
+
+        if not found_city:
+            self.hover_label.config(text="Survol: (x, y)")

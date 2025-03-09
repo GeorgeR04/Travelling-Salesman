@@ -1,25 +1,25 @@
-# main.py
-
 import tkinter as tk
 from tkinter import simpledialog
-from gui import TSPGUI
+from gui import TSPApp
 
 def main():
+
     root = tk.Tk()
-    root.withdraw()  # On masque la fenêtre pendant la saisie
+    root.withdraw()
+
 
     num_cities = simpledialog.askinteger(
         "Configuration",
         "Combien de villes souhaitez-vous générer ?",
         minvalue=2
-    )
-    if num_cities is None:
-        num_cities = 10  # par défaut si l'utilisateur annule
+    ) or 10
 
-    root.deiconify()  # On ré-affiche la fenêtre
 
-    app = TSPGUI(root, num_cities=num_cities)
-    root.mainloop()
+    root.destroy()
+
+
+    app = TSPApp(num_cities=num_cities)
+    app.mainloop()
 
 if __name__ == "__main__":
     main()

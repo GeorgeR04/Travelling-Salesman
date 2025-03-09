@@ -1,103 +1,95 @@
-# aco.py
-
 import random
 import math
 
-def total_distance(path, cities):
-    dist = 0.0
-    for i in range(len(path) - 1):
-        dist += math.dist(cities[path[i]], cities[path[i + 1]])
-    dist += math.dist(cities[path[-1]], cities[path[0]])
-    return dist
+class AntColony:
+    def __init__(self, cities, ant_count=20, iterations=50,
+                 alpha=1.0, beta=5.0, evap=0.3, initial_path=None):
+        self.cities = cities
+        self.ant_count = ant_count
+        self.iterations = iterations
+        self.alpha = alpha
+        self.beta = beta
+        self.evap = evap
+        self.n = len(cities)
 
-def run_ant_colony(cities, ant_count=20, iterations=50,
-                   alpha=1.0, beta=5.0, evap=0.3,
-                   initial_path=None):
-    """
-    Algorithme ACO simple, renvoie (best_path, best_dist).
-    'initial_path' sert à poser un surplus de phéromones avant de commencer.
-    """
-    n = len(cities)
-    # matrice de phéromones
-    pheromones = [[0.1 for _ in range(n)] for _ in range(n)]
+        # Pheromones init
+        self.pheromones = [[0.1] * self.n for _ in range(self.n)]
 
-    # Si on a un chemin initial, on dépose plus de phéromones dessus
-    if initial_path is not None:
-        d_init = total_distance(initial_path, cities)
-        deposit_init = 5.0 / d_init
-        for i in range(len(initial_path) - 1):
-            a = initial_path[i]
-            b = initial_path[i + 1]
-            pheromones[a][b] += deposit_init
-            pheromones[b][a] += deposit_init
-        # boucle
-        a, b = initial_path[-1], initial_path[0]
-        pheromones[a][b] += deposit_init
-        pheromones[b][a] += deposit_init
+        # Dépôt initial de phéromones si path fourni
+        if initial_path:
+            self._deposit_pheromones(initial_path, 5.0 / self._total_distance(initial_path))
 
-    def select_next(current, unvisited):
-        probs = []
-        s = 0.0
+    def _total_distance(self, path):
+        dist = 0
+        for i in range(-1, len(path) - 1):
+            city_a, city_b = self.cities[path[i]], self.cities[path[i+1]]
+            dist += math.dist(city_a, city_b)
+        return dist
+
+    def _select_next(self, current, unvisited):
+        """Choix de la ville suivante par roulette-wheel."""
+        probabilities = []
+        total = 0.0
+
         for city in unvisited:
-            tau = pheromones[current][city] ** alpha
-            d = math.dist(cities[current], cities[city])
-            inv = (1.0 / d) ** beta if d > 0 else 0
-            val = tau * inv
-            probs.append((city, val))
-            s += val
-        if s <= 0:
+            tau = self.pheromones[current][city] ** self.alpha
+            dist = math.dist(self.cities[current], self.cities[city])
+            inv_dist = (1.0 / dist) ** self.beta if dist else 0
+            prob = tau * inv_dist
+            probabilities.append((city, prob))
+            total += prob
+
+        if total <= 0:
             return random.choice(list(unvisited))
 
-        r = random.random() * s
+        threshold = random.uniform(0, total)
         cumul = 0.0
-        for cty, val in probs:
-            cumul += val
-            if cumul >= r:
-                return cty
-        return probs[-1][0]  # fallback
+        for city, prob in probabilities:
+            cumul += prob
+            if cumul >= threshold:
+                return city
 
-    best_path = None
-    best_dist = float("inf")
+        return probabilities[-1][0]
 
-    for _ in range(iterations):
-        solutions = []
-        # Construction de chemins
-        for _ant in range(ant_count):
-            path = [0]
-            unvisited = set(range(n)) - {0}
-            current = 0
-            while unvisited:
-                nxt = select_next(current, unvisited)
-                path.append(nxt)
-                unvisited.remove(nxt)
-                current = nxt
-            dist_path = total_distance(path, cities)
-            solutions.append((path, dist_path))
+    def _evaporate_pheromones(self):
+        for i in range(self.n):
+            for j in range(self.n):
+                self.pheromones[i][j] = max(self.pheromones[i][j] * (1 - self.evap), 0.001)
 
-        # évaporation
-        for i in range(n):
-            for j in range(n):
-                pheromones[i][j] *= (1 - evap)
-                if pheromones[i][j] < 0.001:
-                    pheromones[i][j] = 0.001
+    def _deposit_pheromones(self, path, amount):
+        for i in range(-1, len(path) - 1):
+            a, b = path[i], path[i+1]
+            self.pheromones[a][b] += amount
+            self.pheromones[b][a] += amount
 
-        # dépôt
-        for sol, d in solutions:
-            dep = 1.0 / d
-            for k in range(len(sol) - 1):
-                a = sol[k]
-                b = sol[k + 1]
-                pheromones[a][b] += dep
-                pheromones[b][a] += dep
-            # boucle
-            a, b = sol[-1], sol[0]
-            pheromones[a][b] += dep
-            pheromones[b][a] += dep
+    def run(self):
+        best_path = None
+        best_dist = float('inf')
 
-        # Meilleur local
-        for sol, dist_ in solutions:
-            if dist_ < best_dist:
-                best_dist = dist_
-                best_path = sol
+        for _ in range(self.iterations):
+            solutions = []
+            for _ in range(self.ant_count):
+                path = [0]
+                unvisited = set(range(1, self.n))
+                current = 0
 
-    return best_path, best_dist
+                while unvisited:
+                    next_city = self._select_next(current, unvisited)
+                    path.append(next_city)
+                    unvisited.remove(next_city)
+                    current = next_city
+
+                dist_path = self._total_distance(path)
+                solutions.append((path, dist_path))
+
+                if dist_path < best_dist:
+                    best_path, best_dist = path, dist_path
+
+            # Évaporation globale
+            self._evaporate_pheromones()
+
+            # Dépôt sur chaque solution
+            for path, dist_path in solutions:
+                self._deposit_pheromones(path, 1.0 / dist_path)
+
+        return best_path, best_dist
