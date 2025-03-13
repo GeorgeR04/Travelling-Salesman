@@ -3,196 +3,297 @@ from tkinter import ttk
 import random
 import math
 
-# Importe la GA et l'ACO depuis leurs fichiers respectifs
+from PIL import Image, ImageTk
+
+# Import GA et ACO (inchangé)
 from ga import GeneticAlgorithm
 from aco import AntColony
 
 class TSPApp(tk.Tk):
-    WINDOW_WIDTH = 1200
-    WINDOW_HEIGHT = 800
-
-    # Rayon de détection pour le survol de la souris
     HOVER_RADIUS = 10
 
     def __init__(self, num_cities=10):
         super().__init__()
         self.title("TSP Synthwave - GA & ACO")
-        self.configure(bg="#2c2c2c")
+        self.state('zoomed')
 
         self.num_cities = num_cities
         self.cities = []
 
-        # Suivi de la meilleure distance & chemin
-        self.best_distance = float("inf")
+        # Meilleur résultat
+        self.best_distance = float('inf')
         self.best_path = []
-        self.best_solution_saved = None  # (path, dist)
+        self.best_solution_saved = None
 
-        # Variables pour l'animation
+        # Animation
         self.current_path = []
         self.current_segment_index = 0
         self.is_animating = False
 
-        # Mode automatique
+        # Mode auto
         self.auto_running = False
 
-        # Configuration du style
+        # Liste de tous les chemins conservés
+        self.stored_paths = []
+
+        # Image de fond
+        self.bg_image = None
+        self.bg_image_resized = None
+        self._load_background_image("IMG.png")
+
+        # Style + UI
         self._setup_style()
 
-        # Configuration de l'interface
-        self._setup_ui()
+        ### CHANGEMENT ###
+        # On crée un topbar en haut pour le statut du mode auto
+        self.topbar = ttk.Frame(self, style="TFrame")
+        self.topbar.pack(side=tk.TOP, fill="x")
 
-        # Génération initiale de villes
+        # Label pour le statut du mode auto
+        self.auto_status_label = ttk.Label(self.topbar, text="Mode Auto: OFF")
+        self.auto_status_label.pack(side=tk.LEFT, padx=10, pady=5)
+
+        # Frame principal (en-dessous du topbar)
+        main_frame = ttk.Frame(self)
+        main_frame.pack(fill="both", expand=True)
+
+        # Canvas à gauche
+        self.canvas = tk.Canvas(main_frame, highlightthickness=0, background="#21252b")
+        self.canvas.pack(side=tk.LEFT, fill="both", expand=True)
+        self.canvas.bind("<Configure>", self._on_canvas_resize)
+        self.canvas.bind("<Motion>", self._on_mouse_move)
+
+        # Panneau de droite
+        controls = ttk.Frame(main_frame)
+        controls.config(width=250)
+        controls.pack(side=tk.RIGHT, fill="y", padx=10, pady=10)
+
+        # Suite de la config UI
+        self._setup_ui(controls)
+
+        # Génération initiale
         self._generate_cities()
 
     ################################################################
-    # 1) Configuration du style et interface
+    # 1) Image de fond
+    ################################################################
+    def _load_background_image(self, filename):
+        try:
+            img = Image.open(filename)
+            self.bg_image = ImageTk.PhotoImage(img)
+        except Exception as e:
+            print(f"Impossible de charger l'image : {e}")
+            self.bg_image = None
+
+    ################################################################
+    # 2) Style + UI
     ################################################################
     def _setup_style(self):
-        style = ttk.Style()
+        style = ttk.Style(self)
         style.theme_use("clam")
 
-        style.configure("TFrame", background="#2c2c2c")
-        style.configure("TLabel", background="#2c2c2c", foreground="white", font=("Helvetica", 11))
-        style.configure("TButton", background="#3a3a3a", foreground="white", font=("Helvetica", 10, "bold"))
+        # Palette
+        main_bg = "#282c34"
+        text_fg = "#abb2bf"
+        button_bg = "#3b4048"
+        button_active_bg = "#4b515c"
+        combo_bg = "#3b4048"
+        labelframe_bg = "#2f2f2f"
+
+        self.configure(bg=main_bg)
+
+        style.configure("TFrame", background=main_bg)
+        style.configure("TLabel", background=main_bg, foreground=text_fg, font=("Helvetica", 11))
+        style.configure("TButton",
+                        background=button_bg,
+                        foreground=text_fg,
+                        font=("Helvetica", 10, "bold"),
+                        borderwidth=0)
+        style.map("TButton",
+                  background=[("active", button_active_bg)],
+                  foreground=[("active", text_fg)])
+
         style.configure("TCombobox",
-                        fieldbackground="#3a3a3a",
-                        background="#3a3a3a",
-                        foreground="white")
+                        fieldbackground=combo_bg,
+                        background=combo_bg,
+                        foreground=text_fg)
         style.map("TCombobox",
-                  fieldbackground=[("readonly", "#3a3a3a")],
-                  foreground=[("readonly", "white")],
-                  background=[("readonly", "#3a3a3a")])
+                  fieldbackground=[("readonly", combo_bg)],
+                  foreground=[("readonly", text_fg)],
+                  background=[("readonly", combo_bg)])
 
-    def _setup_ui(self):
-        # Canevas principal
-        self.canvas = tk.Canvas(
-            self, width=self.WINDOW_WIDTH, height=self.WINDOW_HEIGHT,
-            highlightthickness=0
-        )
-        self.canvas.pack(side=tk.LEFT, fill="both", expand=True)
+        style.configure("TLabelframe", background=labelframe_bg, borderwidth=1)
+        style.configure("TLabelframe.Label", background=labelframe_bg, foreground=text_fg)
+        style.configure("TLabelframe.Label", font=("Helvetica", 10, "bold"))
 
-        # Événement <Motion> pour détecter la souris et afficher (x,y)
-        self.canvas.bind("<Motion>", self._on_mouse_move)
+    def _setup_ui(self, controls):
+        # -- Labelframe: GESTION VILLES
+        ville_frame = ttk.Labelframe(controls, text="Gestion Villes")
+        ville_frame.pack(fill="x", pady=10)
 
-        self._draw_canvas_bg_gradient()
+        ttk.Button(ville_frame, text="Générer Villes",
+                   command=self._generate_cities).pack(fill="x", pady=5)
 
-        # Cadre de commandes à droite
-        controls = ttk.Frame(self)
-        controls.pack(side=tk.RIGHT, fill="y", padx=10, pady=10)
+        self.info_label = ttk.Label(ville_frame, text="Meilleure distance: -")
+        self.info_label.pack(pady=5)
 
-        ttk.Button(controls, text="Générer Villes", command=self._generate_cities).pack(fill="x", pady=5)
-
+        # Choix Algorithme
         ttk.Label(controls, text="Choisir Algorithme:").pack(pady=2)
         self.algo_var = tk.StringVar(value="GA")
         algo_menu = ttk.Combobox(controls, textvariable=self.algo_var,
                                  values=["GA", "ACO", "Hybride"], state="readonly")
         algo_menu.pack(fill="x", pady=5)
 
+        # Boutons Lancer
         ttk.Button(controls, text="Lancer", command=self._run_once).pack(fill="x", pady=5)
-        ttk.Button(controls, text="Mode Automatique", command=self._start_auto).pack(fill="x", pady=5)
-        ttk.Button(controls, text="Stop Mode Automatic", command=self._stop_auto).pack(fill="x", pady=5)
+        ttk.Button(controls, text="Lancer Rapide", command=self._run_once_no_animation).pack(fill="x", pady=5)
 
-        ttk.Button(controls, text="Dessiner Best (Overlay)",
+        # -- Labelframe: MODE AUTOMATIQUE
+        auto_frame = ttk.Labelframe(controls, text="Mode Automatique")
+        auto_frame.pack(fill="x", pady=10)
+
+        ttk.Button(auto_frame, text="Démarrer", command=self._start_auto).pack(fill="x", pady=5)
+        ttk.Button(auto_frame, text="Stop", command=self._stop_auto).pack(fill="x", pady=5)
+
+        # -- Labelframe: SOLUTION ENREGISTREE
+        saved_frame = ttk.Labelframe(controls, text="Solution Enregistrée")
+        saved_frame.pack(fill="x", pady=10)
+
+        ttk.Button(saved_frame, text="Dessiner Best (Overlay)",
                    command=lambda: self._draw_saved_solution(overlay=True)).pack(fill="x", pady=5)
-        ttk.Button(controls, text="Dessiner Best (Alone)",
+        ttk.Button(saved_frame, text="Dessiner Best (Alone)",
                    command=lambda: self._draw_saved_solution(overlay=False)).pack(fill="x", pady=5)
 
-        self.info_label = ttk.Label(controls, text="Meilleure distance: -")
-        self.info_label.pack(pady=10)
-
-        # Label pour afficher la position de la ville survolée
-        self.hover_label = ttk.Label(controls, text="Survol: (x, y)")
+        # Survol
+        self.hover_label = ttk.Label(controls, text="Survol: (x, y)", width=30)
         self.hover_label.pack(pady=5)
 
-    ################################################################
-    # 2) Fond dégradé du canevas
-    ################################################################
-    def _draw_canvas_bg_gradient(self):
-        """Dessine un dégradé vertical de gris sur tout le canevas."""
-        self.canvas.delete("gradient_bg")
-        steps = 60
-        start_color = (0x2D, 0x2D, 0x2D)  # #2d2d2d
-        end_color   = (0x4D, 0x4D, 0x4D)  # #4d4d4d
-
-        for i in range(steps):
-            f = i / (steps - 1)
-            r = int(start_color[0] + f * (end_color[0] - start_color[0]))
-            g = int(start_color[1] + f * (end_color[1] - start_color[1]))
-            b = int(start_color[2] + f * (end_color[2] - start_color[2]))
-            color_hex = f"#{r:02x}{g:02x}{b:02x}"
-
-            y_start = int(self.WINDOW_HEIGHT * i / steps)
-            y_end   = int(self.WINDOW_HEIGHT * (i + 1) / steps)
-
-            self.canvas.create_rectangle(
-                0, y_start,
-                self.WINDOW_WIDTH, y_end,
-                fill=color_hex,
-                outline=color_hex,
-                tags="gradient_bg"
-            )
-
-    def _draw_scale(self):
-        """
-        Dessine une grille (ou axes) avec des repères pour montrer
-        les coordonnées (x, y). Ici, c’est une grille tous les 100 pixels.
-        """
-        step = 100
-        line_color = "#444444"
-        text_color = "#ffffff"
-
-        # Lignes verticales + label X
-        for x in range(0, self.WINDOW_WIDTH + 1, step):
-            self.canvas.create_line(x, 0, x, self.WINDOW_HEIGHT, fill=line_color, dash=(2, 2))
-            self.canvas.create_text(x + 15, 10, text=str(x), fill=text_color, font=("Helvetica", 9, "bold"))
-
-        # Lignes horizontales + label Y
-        for y in range(0, self.WINDOW_HEIGHT + 1, step):
-            self.canvas.create_line(0, y, self.WINDOW_WIDTH, y, fill=line_color, dash=(2, 2))
-            self.canvas.create_text(30, y + 10, text=str(y), fill=text_color, font=("Helvetica", 9, "bold"))
+        self.segment_label = ttk.Label(controls, text="Segment: -", width=30)
+        self.segment_label.pack(pady=5)
 
     ################################################################
-    # 3) Génération des villes
+    # 3) Redimensionnement
+    ################################################################
+    def _on_canvas_resize(self, event):
+        self._refresh_canvas()
+
+    ################################################################
+    # 4) Génération de villes
     ################################################################
     def _generate_cities(self):
-        """Génère des villes en position aléatoire et réinitialise le meilleur chemin."""
+        w = self.canvas.winfo_width()
+        h = self.canvas.winfo_height()
         margin = 50
+
+        if w < 100: w = 1200
+        if h < 100: h = 800
+
         self.cities = [
-            (
-                random.randint(margin, self.WINDOW_WIDTH - margin),
-                random.randint(margin, self.WINDOW_HEIGHT - margin)
-            )
+            (random.randint(margin, w - margin),
+             random.randint(margin, h - margin))
             for _ in range(self.num_cities)
         ]
 
-        self.best_distance = float("inf")
+        self.best_distance = float('inf')
         self.best_path = []
-        self.current_path = []
-        self.is_animating = False
         self.best_solution_saved = None
+        self.current_path = []
+        self.current_segment_index = 0
+        self.is_animating = False
+
+        # On vide la liste des chemins
+        self.stored_paths.clear()
 
         self._refresh_canvas()
         self._update_info_label("Nouvelles villes générées.")
 
     def _draw_cities(self):
         for i, (x, y) in enumerate(self.cities):
-            r = 6
+            r = 5
             self.canvas.create_oval(x - r, y - r, x + r, y + r,
-                                    fill="#f1f1f1", outline="#888888", width=1)
+                                    fill="#ffffff", outline="#000000", width=1)
             self.canvas.create_text(x, y - 12, text=str(i+1),
                                     fill="#ffffff", font=("Helvetica", 9, "bold"))
 
+    ################################################################
+    # 5) refresh_canvas (image, axes, villes + chemins)
+    ################################################################
     def _refresh_canvas(self):
         self.canvas.delete("all")
-        self._draw_canvas_bg_gradient()
-        self._draw_scale()  # <-- DESSINE LA GRILLE / ÉCHELLE
+
+        w = self.canvas.winfo_width()
+        h = self.canvas.winfo_height()
+        margin = 50
+
+        # Image => prend la taille (margin->w-margin, margin->h-margin)
+        self._draw_bg_image(margin, margin, w - margin, h - margin)
+        # Axes + grille
+        self._draw_axes_with_grads(w, h, margin)
+        # Villes
         self._draw_cities()
 
+        # Redessine tous les chemins stockés
+        for (path, color, width) in self.stored_paths:
+            self._draw_path(path, color=color, width=width,
+                            clear_first=False, store_in_list=False)
+
+    def _draw_bg_image(self, x1, y1, x2, y2):
+        if self.bg_image:
+            zone_width = x2 - x1
+            zone_height = y2 - y1
+            try:
+                img_pil = ImageTk.getimage(self.bg_image)
+                resized = img_pil.resize((zone_width, zone_height), Image.Resampling.LANCZOS)
+                self.bg_image_resized = ImageTk.PhotoImage(resized)
+                self.canvas.create_image(x1, y1, anchor="nw", image=self.bg_image_resized)
+            except:
+                self.canvas.create_image(x1, y1, anchor="nw", image=self.bg_image)
+
+    def _draw_axes_with_grads(self, w, h, margin, step=50):
+        x_start, x_end = margin, w - margin
+        y_start, y_end = h - margin, margin
+
+        # Grille vertical/horizontal
+        for x_pos in range(x_start, x_end+1, step):
+            self.canvas.create_line(x_pos, y_end, x_pos, y_start,
+                                    fill="white", width=1, stipple="gray75")
+        for y_pos in range(y_end, y_start+1, step):
+            self.canvas.create_line(x_start, y_pos, x_end, y_pos,
+                                    fill="white", width=1, stipple="gray75")
+
+        # Axe X
+        self.canvas.create_line(x_start, y_start, x_end, y_start,
+                                fill="white", width=2)
+        # Axe Y
+        self.canvas.create_line(x_start, y_start, x_start, y_end,
+                                fill="white", width=2)
+
+        # Graduations X
+        for x_pos in range(x_start, x_end+1, step):
+            self.canvas.create_line(x_pos, y_start-5, x_pos, y_start+5,
+                                    fill="white", width=2)
+            label_val = x_pos - x_start
+            self.canvas.create_text(x_pos, y_start+12, text=str(label_val),
+                                    fill="white", font=("Helvetica", 8))
+
+        # Graduations Y
+        for y_pos in range(y_end, y_start+1, step):
+            self.canvas.create_line(x_start-5, y_pos, x_start+5, y_pos,
+                                    fill="white", width=2)
+            label_val = y_start - y_pos
+            self.canvas.create_text(x_start-8, y_pos, text=str(label_val),
+                                    fill="white", font=("Helvetica", 8),
+                                    anchor="e")
+
+        self.canvas.create_text(x_end+15, y_start, text="X",
+                                fill="white", font=("Helvetica", 9), anchor="nw")
+        self.canvas.create_text(x_start, y_end-15, text="Y",
+                                fill="white", font=("Helvetica", 9), anchor="sw")
+
     ################################################################
-    # 4) Calcul distance et mise à jour des infos
+    # 6) Distances + info
     ################################################################
     def _compute_distance(self, path):
-        """Calcule la distance totale d'une tournée fermée."""
         dist = 0
         for i in range(-1, len(path) - 1):
             x1, y1 = self.cities[path[i]]
@@ -205,19 +306,32 @@ class TSPApp(tk.Tk):
             dist_txt = f"Meilleure distance: {self.best_distance:.2f}"
         else:
             dist_txt = "Meilleure distance: -"
-
         text = dist_txt if not msg else f"{dist_txt}\n{msg}"
         self.info_label.config(text=text)
 
     ################################################################
-    # 5) Lancer l’algorithme (GA / ACO / Hybride)
+    # 7) Lancer l'algo
     ################################################################
     def _run_once(self):
-        """Exécute un algorithme choisi, une seule fois."""
+        # Effacer les chemins existants
+        self.stored_paths.clear()
+        self._refresh_canvas()
+
         if not self.cities or self.is_animating:
             return
-        new_path = self._run_algorithm(self.algo_var.get())
-        self._check_and_update_best(new_path, is_auto=False)
+        path = self._run_algorithm(self.algo_var.get())
+        self._check_and_update_best(path, is_auto=False, skip_animation=False)
+
+    def _run_once_no_animation(self):
+        # On efface les anciens chemins
+        self.stored_paths.clear()
+        self._refresh_canvas()
+
+        if not self.cities:
+            return
+
+        path = self._run_algorithm(self.algo_var.get())
+        self._check_and_update_best(path, is_auto=False, skip_animation=True)
 
     def _run_algorithm(self, algo_name):
         if algo_name == "GA":
@@ -229,15 +343,13 @@ class TSPApp(tk.Tk):
             best_path, _ = aco.run()
             return best_path
         else:
-            # Hybride: GA puis ACO avec la solution GA en "hint"
             ga = GeneticAlgorithm(self.cities)
             ga_path, _ = ga.run()
             aco = AntColony(self.cities, initial_path=ga_path)
             aco_path, _ = aco.run()
             return aco_path
 
-    def _check_and_update_best(self, path, is_auto=False):
-        """Vérifie si la solution courante est meilleure que la meilleure connue."""
+    def _check_and_update_best(self, path, is_auto=False, skip_animation=False):
         dist = self._compute_distance(path)
         if dist < self.best_distance:
             self.best_distance = dist
@@ -246,25 +358,32 @@ class TSPApp(tk.Tk):
             self._refresh_canvas()
             self.current_path = path
             self.current_segment_index = 0
-            self.is_animating = True
-            self._update_info_label(f"Nouvelle meilleure solution ! (dist={dist:.2f})")
 
-            # Sauvegarde
             self.best_solution_saved = (path[:], dist)
 
-            # Lance l’animation
-            self._animate_path(is_auto=is_auto)
+            if not skip_animation:
+                self.is_animating = True
+                self._update_info_label(f"Nouvelle meilleure solution ! (dist={dist:.2f})")
+                self._animate_path(is_auto=is_auto)
+            else:
+                self.is_animating = False
+                self._draw_path(path, color="#f72585", width=3,
+                                clear_first=False, store_in_list=True)
+                self._update_info_label(f"Nouvelle meilleure solution (Rapide) ! (dist={dist:.2f})")
+
+                if is_auto and self.auto_running:
+                    self.after(5000, self._auto_loop)
         else:
-            # Chemin non meilleur, on l’affiche en orange brièvement
-            self._draw_path(path, color="#ffa600", width=2, clear_first=True)
+            # Chemin non meilleur => on dessine en orange
+            self._draw_path(path, color="#ffa600", width=2,
+                            clear_first=False, store_in_list=True)
             self._update_info_label(f"Solution non meilleure (dist={dist:.2f})")
 
-            # Si on est en auto, enchaîne
             if is_auto and self.auto_running:
                 self.after(5000, self._auto_loop)
 
     ################################################################
-    # 6) Animation synthwave
+    # 8) Animation
     ################################################################
     def _animate_path(self, is_auto=False):
         if not self.is_animating:
@@ -274,11 +393,12 @@ class TSPApp(tk.Tk):
         seg_idx = self.current_segment_index
         n = len(path)
 
-        # Quand on a tracé tous les segments, on ferme la boucle
         if seg_idx >= n:
             self._draw_synthwave_line(path[-1], path[0], seg_idx)
             self.is_animating = False
             self._update_info_label("Animation terminée.")
+            self._add_path_to_stored_paths(path, color="#f72585", width=3)
+
             if is_auto and self.auto_running:
                 self.after(5000, self._auto_loop)
             return
@@ -290,27 +410,47 @@ class TSPApp(tk.Tk):
         self.after(200, lambda: self._animate_path(is_auto=is_auto))
 
     def _draw_synthwave_line(self, i1, i2, seg_idx):
-        """Trace un segment coloré façon "néon synthwave"."""
-        palette = [
-            "#f72585", "#b5179e", "#7209b7",
-            "#3a0ca3", "#4361ee", "#4cc9f0"
-        ]
+        palette = ["#f72585", "#b5179e", "#7209b7",
+                   "#3a0ca3", "#4361ee", "#4cc9f0"]
         color = palette[seg_idx % len(palette)]
         x1, y1 = self.cities[i1]
         x2, y2 = self.cities[i2]
-        self.canvas.create_line(x1, y1, x2, y2, fill=color, width=3)
+
+        line_id = self.canvas.create_line(x1, y1, x2, y2, fill=color, width=3)
+
+        dist_val = math.dist((x1, y1), (x2, y2))
+        self.canvas.tag_bind(line_id, "<Enter>",
+                             lambda e, d=dist_val: self._show_segment_distance(d))
+        self.canvas.tag_bind(line_id, "<Leave>",
+                             lambda e: self._show_segment_distance(None))
+
+    def _add_path_to_stored_paths(self, path, color="#ffa600", width=2):
+        self.stored_paths.append((path[:], color, width))
 
     ################################################################
-    # 7) Mode automatique
+    # 9) Mode auto
     ################################################################
     def _start_auto(self):
-        """Démarre un enchaînement infini d’exécutions."""
-        if not self.auto_running:
-            self.auto_running = True
-            self._auto_loop()
+        # S’il est déjà lancé, on ne relance pas.
+        if self.auto_running:
+            return
+
+        self.auto_running = True
+
+        ### CHANGEMENT : on efface l'état précédent ###
+        self.best_distance = float('inf')
+        self.best_path = []
+        self.best_solution_saved = None
+        self.stored_paths.clear()
+        self._refresh_canvas()
+
+        # On met à jour le label en haut
+        self.auto_status_label.config(text="Mode Auto: ON")
+
+        # On démarre la boucle automatique
+        self._auto_loop()
 
     def _auto_loop(self):
-        """Boucle d’exécution automatique tant que self.auto_running est True."""
         if not self.auto_running:
             return
         self._run_auto_iteration()
@@ -318,62 +458,81 @@ class TSPApp(tk.Tk):
     def _run_auto_iteration(self):
         if not self.cities or self.is_animating:
             return
+
+        # On vide les chemins stockés avant de tracer le nouveau
+        self.stored_paths.clear()
+        self._refresh_canvas()
+
         new_path = self._run_algorithm(self.algo_var.get())
         self._check_and_update_best(new_path, is_auto=True)
 
     def _stop_auto(self):
         self.auto_running = False
+        # On met à jour le label
+        self.auto_status_label.config(text="Mode Auto: OFF")
 
     ################################################################
-    # 8) Dessiner la solution sauvegardée
+    # 10) Dessiner la solution sauvegardée
     ################################################################
     def _draw_saved_solution(self, overlay=True):
         if not self.best_solution_saved:
             self._update_info_label("Aucune solution enregistrée à dessiner.")
             return
-        saved_path, saved_dist = self.best_solution_saved
+        path, dist = self.best_solution_saved
 
         if not overlay:
+            self.stored_paths.clear()
             self._refresh_canvas()
 
-        # On la dessine en vert
-        self._draw_path(saved_path, color="#00FF00", width=3, clear_first=False)
-        self._update_info_label(f"Solution enregistrée dessinée (dist={saved_dist:.2f}).")
+        self._draw_path(path, color="#00FF00", width=3,
+                        clear_first=False, store_in_list=True)
+        self._update_info_label(f"Solution enregistrée dessinée (dist={dist:.2f}).")
 
     ################################################################
-    # 9) DESSIN RAPIDE D’UN CHEMIN
+    # 11) DESSIN RAPIDE (avec survol segment)
     ################################################################
-    def _draw_path(self, path, color="#ffa600", width=2, clear_first=True):
+    def _draw_path(self, path, color="#ffa600", width=2,
+                   clear_first=True, store_in_list=False):
         if clear_first:
             self._refresh_canvas()
 
         for i in range(len(path) - 1):
-            x1, y1 = self.cities[path[i]]
-            x2, y2 = self.cities[path[i+1]]
-            self.canvas.create_line(x1, y1, x2, y2, fill=color, width=width)
+            idx1 = path[i]
+            idx2 = path[i + 1]
+            x1, y1 = self.cities[idx1]
+            x2, y2 = self.cities[idx2]
 
-        # Boucle fermée
+            dist_val = math.dist((x1, y1), (x2, y2))
+            line_id = self.canvas.create_line(x1, y1, x2, y2, fill=color, width=width)
+            self.canvas.tag_bind(line_id, "<Enter>",
+                                 lambda e, d=dist_val: self._show_segment_distance(d))
+            self.canvas.tag_bind(line_id, "<Leave>",
+                                 lambda e: self._show_segment_distance(None))
+
+        # Fermeture
         if len(path) > 1:
-            x1, y1 = self.cities[path[-1]]
-            x2, y2 = self.cities[path[0]]
-            self.canvas.create_line(x1, y1, x2, y2, fill=color, width=width)
+            x_last, y_last = self.cities[path[-1]]
+            x_first, y_first = self.cities[path[0]]
+            dist_val = math.dist((x_last, y_last), (x_first, y_first))
+            line_id = self.canvas.create_line(x_last, y_last, x_first, y_first,
+                                              fill=color, width=width)
+            self.canvas.tag_bind(line_id, "<Enter>",
+                                 lambda e, d=dist_val: self._show_segment_distance(d))
+            self.canvas.tag_bind(line_id, "<Leave>",
+                                 lambda e: self._show_segment_distance(None))
+
+        if store_in_list:
+            self.stored_paths.append((path[:], color, width))
 
     ################################################################
-    # 10) DÉTECTION DE LA VILLE SURVOLÉE
+    # 12) Survol ville + distance segment
     ################################################################
     def _on_mouse_move(self, event):
-        """
-        À chaque mouvement de souris dans le canevas, on regarde si
-        le pointeur est proche d’une ville (à moins de HOVER_RADIUS).
-        Si oui, on affiche (x,y) dans self.hover_label, sinon on remet un texte neutre.
-        """
         found_city = False
-
         for i, (cx, cy) in enumerate(self.cities):
             dx = event.x - cx
             dy = event.y - cy
-            # On compare la distance au carré pour éviter un sqrt()
-            if dx*dx + dy*dy <= self.HOVER_RADIUS * self.HOVER_RADIUS:
+            if dx*dx + dy*dy <= self.HOVER_RADIUS*self.HOVER_RADIUS:
                 self.hover_label.config(
                     text=f"Survol: Ville {i+1} (X={cx}, Y={cy})"
                 )
@@ -381,4 +540,10 @@ class TSPApp(tk.Tk):
                 break
 
         if not found_city:
-            self.hover_label.config(text="Survol: (x, y)")
+            self.hover_label.config(text=f"Survol: ({event.x}, {event.y})")
+
+    def _show_segment_distance(self, dist_val):
+        if dist_val is None:
+            self.segment_label.config(text="Segment: -")
+        else:
+            self.segment_label.config(text=f"Segment: {dist_val:.2f}")
