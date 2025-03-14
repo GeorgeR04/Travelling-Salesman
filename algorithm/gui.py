@@ -49,10 +49,16 @@ class TSPApp(tk.Tk):
         # On crée un topbar en haut pour le statut du mode auto
         self.topbar = ttk.Frame(self, style="TFrame")
         self.topbar.pack(side=tk.TOP, fill="x")
-
+        #self.redStyle = ttk.Style()
+        #self.redStyle.configure("redColor", foreground="rgb(255,0,0)")
         # Label pour le statut du mode auto
-        self.auto_status_label = ttk.Label(self.topbar, text="Mode Auto: OFF")
-        self.auto_status_label.pack(side=tk.LEFT, padx=10, pady=5)
+
+        self.txt_status_label = ttk.Label(self.topbar, text="Mode Auto: ",)
+        self.auto_status_label = ttk.Label(self.topbar, text="OFF", foreground="#F00")
+        self.txt_status_label.pack(side=tk.LEFT, padx=10, pady=5)
+        self.auto_status_label.pack(side=tk.LEFT, padx=13, pady=5)
+
+       
 
         # Frame principal (en-dessous du topbar)
         main_frame = ttk.Frame(self)
@@ -63,7 +69,7 @@ class TSPApp(tk.Tk):
         self.canvas.pack(side=tk.LEFT, fill="both", expand=True)
         self.canvas.bind("<Configure>", self._on_canvas_resize)
         self.canvas.bind("<Motion>", self._on_mouse_move)
-
+        self._refresh_canvas()
         # Panneau de droite
         controls = ttk.Frame(main_frame)
         controls.config(width=250)
@@ -154,8 +160,8 @@ class TSPApp(tk.Tk):
         algo_menu.pack(fill="x", pady=5)
 
         # Boutons Lancer
-        ttk.Button(controls, text="Lancer", command=self._run_once).pack(fill="x", pady=5)
-        ttk.Button(controls, text="Lancer Rapide", command=self._run_once_no_animation).pack(fill="x", pady=5)
+        ttk.Button(controls, text="Lancer (animation)", command=self._run_once).pack(fill="x", pady=5)
+        ttk.Button(controls, text="Lancer Rapide (without animiation)", command=self._run_once_no_animation).pack(fill="x", pady=5)
 
         # -- Labelframe: MODE AUTOMATIQUE
         auto_frame = ttk.Labelframe(controls, text="Mode Automatique")
@@ -454,7 +460,7 @@ class TSPApp(tk.Tk):
         self._refresh_canvas()
 
         # On met à jour le label en haut
-        self.auto_status_label.config(text="Mode Auto: ON")
+        self.auto_status_label.config(text="ON", foreground="#0F0")
 
         # On démarre la boucle automatique
         self._auto_loop()
@@ -478,7 +484,7 @@ class TSPApp(tk.Tk):
     def _stop_auto(self):
         self.auto_running = False
         # On met à jour le label
-        self.auto_status_label.config(text="Mode Auto: OFF")
+        self.auto_status_label.config(text="OFF", foreground="#F00")
 
     ################################################################
     # 10) Dessiner la solution sauvegardée

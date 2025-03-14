@@ -3,14 +3,6 @@ from tkinter import simpledialog
 from gui import TSPApp
 
 def main():
-
-    root = tk.Tk()
-    root.withdraw()
-
-
-    root.destroy()
-
-
     app = TSPApp()
     app.mainloop()
 
