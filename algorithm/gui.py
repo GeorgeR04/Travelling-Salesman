@@ -1,5 +1,6 @@
 import tkinter as tk
 from tkinter import ttk
+from tkinter import *
 import random
 import math
 
@@ -11,13 +12,13 @@ from aco import AntColony
 
 class TSPApp(tk.Tk):
     HOVER_RADIUS = 10
-
-    def __init__(self, num_cities=10):
+    
+    def __init__(self):
         super().__init__()
         self.title("TSP Synthwave - GA & ACO")
         self.state('zoomed')
-
-        self.num_cities = num_cities
+       
+        self.num_cities = 10
         self.cities = []
 
         # Meilleur résultat
@@ -131,6 +132,14 @@ class TSPApp(tk.Tk):
         ville_frame = ttk.Labelframe(controls, text="Gestion Villes")
         ville_frame.pack(fill="x", pady=10)
 
+        self.num_cities_label = ttk.Label(ville_frame, text="Nombres de villes")
+        self.num_cities_label.pack(pady=15)
+        print("num_cities", self.num_cities)
+        self.num_cities = tk.IntVar(value=self.num_cities)
+       # self.num_cities.set(10)
+        num_cities_entry = ttk.Entry(ville_frame, textvariable=str(self.num_cities), width=10)
+        num_cities_entry.pack(fill="x", pady=17)
+        print("num_cities", type(self.num_cities))
         ttk.Button(ville_frame, text="Générer Villes",
                    command=self._generate_cities).pack(fill="x", pady=5)
 
@@ -191,7 +200,7 @@ class TSPApp(tk.Tk):
         self.cities = [
             (random.randint(margin, w - margin),
              random.randint(margin, h - margin))
-            for _ in range(self.num_cities)
+            for _ in range(self.num_cities.get())
         ]
 
         self.best_distance = float('inf')
