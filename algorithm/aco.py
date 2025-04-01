@@ -2,8 +2,7 @@ import random
 import math
 
 class AntColony:
-    def __init__(self, cities, ant_count=20, iterations=50,
-                 alpha=1.0, beta=5.0, evap=0.3, initial_path=None):
+    def __init__(self, cities, ant_count=20, iterations=50, alpha=1.0, beta=5.0, evap=0.3, initial_path=None, logger=None):
         self.cities = cities
         self.ant_count = ant_count
         self.iterations = iterations
@@ -11,7 +10,7 @@ class AntColony:
         self.beta = beta
         self.evap = evap
         self.n = len(cities)
-
+        self.logger = logger
         # Pheromones init
         self.pheromones = [[0.1] * self.n for _ in range(self.n)]
 
@@ -63,10 +62,12 @@ class AntColony:
             self.pheromones[b][a] += amount
 
     def run(self):
+        import time
         best_path = None
         best_dist = float('inf')
 
-        for _ in range(self.iterations):
+        for it in range(self.iterations):
+            start_time = time.time()
             solutions = []
             for _ in range(self.ant_count):
                 path = [0]
@@ -92,4 +93,10 @@ class AntColony:
             for path, dist_path in solutions:
                 self._deposit_pheromones(path, 1.0 / dist_path)
 
+            # Log stats à chaque itération
+            duration = time.time() - start_time
+            if self.logger:
+                self.logger.log("ACO", best_dist, duration, iteration=it)
+
         return best_path, best_dist
+

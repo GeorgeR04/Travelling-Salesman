@@ -1,15 +1,14 @@
 import tkinter as tk
 from tkinter import ttk
-from tkinter import *
-import random
-import math
-import threading
+import random, math, threading
 from PIL import Image, ImageTk
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
-# Import des algorithmes (modules séparés)
+# Import des algorithmes et du logger (ils doivent être disponibles en modules séparés)
 from ga import GeneticAlgorithm
 from aco import AntColony
-
+from algorithm.stats_logger import StatsLogger  # Le code fourni par l'utilisateur
 
 class TSPApp(tk.Tk):
     HOVER_RADIUS = 10
@@ -44,16 +43,22 @@ class TSPApp(tk.Tk):
         self.bg_image_resized = None
         self._load_background_image("IMG.png")
 
-        # Configuration du style et de l'interface
-        self._setup_style()
+        # Initialisation du logger de statistiques
+        self.stats_logger = StatsLogger()
+
+        # Variables pour l'algorithme GA en mode step-by-step
+        self.ga_instance = None
+        self.ga_generator = None
+
+        # Configuration de l'interface (UI et styles)
         self._setup_ui()
 
         # Génération initiale des villes
         self._generate_cities()
 
-    ################################################################
+    #########################################################
     # Chargement de l'image de fond
-    ################################################################
+    #########################################################
     def _load_background_image(self, filename):
         try:
             img = Image.open(filename)
@@ -62,55 +67,87 @@ class TSPApp(tk.Tk):
             print(f"Erreur de chargement de l'image: {e}")
             self.bg_image = None
 
-    ################################################################
+    #########################################################
     # Configuration du style de l'interface
-    ################################################################
+    #########################################################
     def _setup_style(self):
         style = ttk.Style(self)
         style.theme_use("clam")
-
         main_bg = "#282c34"
         text_fg = "#abb2bf"
         button_bg = "#3b4048"
         button_active_bg = "#4b515c"
         combo_bg = "#3b4048"
         labelframe_bg = "#2f2f2f"
-
         self.configure(bg=main_bg)
         style.configure("TFrame", background=main_bg)
         style.configure("TLabel", background=main_bg, foreground=text_fg, font=("Helvetica", 11))
-        style.configure("TButton", background=button_bg, foreground=text_fg, font=("Helvetica", 10, "bold"),
-                        borderwidth=0)
+        style.configure("TButton", background=button_bg, foreground=text_fg, font=("Helvetica", 10, "bold"), borderwidth=0)
         style.map("TButton", background=[("active", button_active_bg)], foreground=[("active", text_fg)])
         style.configure("TCombobox", fieldbackground=combo_bg, background=combo_bg, foreground=text_fg)
-        style.map("TCombobox", fieldbackground=[("readonly", combo_bg)], foreground=[("readonly", text_fg)],
-                  background=[("readonly", combo_bg)])
+        style.map("TCombobox", fieldbackground=[("readonly", combo_bg)], foreground=[("readonly", text_fg)], background=[("readonly", combo_bg)])
         style.configure("TLabelframe", background=labelframe_bg, borderwidth=1)
-        style.configure("TLabelframe.Label", background=labelframe_bg, foreground=text_fg,
-                        font=("Helvetica", 10, "bold"))
+        style.configure("TLabelframe.Label", background=labelframe_bg, foreground=text_fg, font=("Helvetica", 10, "bold"))
 
-    ################################################################
-    # Configuration de l'interface utilisateur (UI)
-    ################################################################
+    #########################################################
+    # Configuration globale de l'interface (création des pages)
+    #########################################################
     def _setup_ui(self):
-        # Topbar pour le statut du mode auto
-        self.topbar = ttk.Frame(self, style="TFrame")
+        self._setup_style()
+        # Topbar avec une hauteur augmentée
+        self.topbar = ttk.Frame(self, style="TFrame", height=50)
         self.topbar.pack(side=tk.TOP, fill="x")
+        self.topbar.pack_propagate(False)
+
         ttk.Label(self.topbar, text="Mode Auto: ", style="TLabel").pack(side=tk.LEFT, padx=10, pady=5)
         self.auto_status_label = ttk.Label(self.topbar, text="OFF", foreground="#F00", style="TLabel")
-        self.auto_status_label.pack(side=tk.LEFT, padx=13, pady=5)
+        self.auto_status_label.pack(side=tk.LEFT, padx=10, pady=5)
 
-        # Frame principale contenant le canvas et les contrôles
-        main_frame = ttk.Frame(self)
+        self.generation_label = ttk.Label(self.topbar, text="Génération: 0", style="TLabel")
+        self.generation_label.pack(side=tk.LEFT, padx=10, pady=5)
+
+        # Curseur pour définir le nombre maximum de générations
+        ttk.Label(self.topbar, text="Max Générations:", style="TLabel").pack(side=tk.LEFT, padx=10, pady=5)
+        self.max_gen_var = tk.IntVar(value=50)
+        max_gen_slider = ttk.Scale(self.topbar, from_=10, to=500, orient=tk.HORIZONTAL, variable=self.max_gen_var)
+        max_gen_slider.pack(side=tk.LEFT, padx=5, pady=5)
+        # Label affichant la valeur actuelle du curseur
+        self.max_gen_label = ttk.Label(self.topbar, text=str(self.max_gen_var.get()), style="TLabel")
+        self.max_gen_label.pack(side=tk.LEFT, padx=5, pady=5)
+        # Met à jour le label quand la valeur change
+        self.max_gen_var.trace_add("write", lambda *args: self.max_gen_label.config(text=str(self.max_gen_var.get())))
+
+        ttk.Button(self.topbar, text="Visualisation", command=self._show_canvas_page).pack(side=tk.RIGHT, padx=5,
+                                                                                           pady=5)
+        ttk.Button(self.topbar, text="Statistiques", command=self._show_stats_page).pack(side=tk.RIGHT, padx=5, pady=5)
+
+        # Conteneur principal pour les pages
+        self.container = ttk.Frame(self, style="TFrame")
+        self.container.pack(fill="both", expand=True)
+        self.pages = {}
+
+        # Création des pages
+        self._create_canvas_page()
+        self._create_stats_page()
+
+        # Affichage par défaut : page canvas
+        self._show_canvas_page()
+
+    #########################################################
+    # Création de la page de visualisation (canvas et contrôles)
+    #########################################################
+    def _create_canvas_page(self):
+        canvas_frame = ttk.Frame(self.container, style="TFrame")
+        self.pages['canvas'] = canvas_frame
+
+        main_frame = ttk.Frame(canvas_frame)
         main_frame.pack(fill="both", expand=True)
 
-        # Canvas pour le dessin du TSP
         self.canvas = tk.Canvas(main_frame, highlightthickness=0, background="#21252b")
         self.canvas.pack(side=tk.LEFT, fill="both", expand=True)
         self.canvas.bind("<Configure>", self._on_canvas_resize)
         self.canvas.bind("<Motion>", self._on_mouse_move)
 
-        # Panneau de contrôle
         controls = ttk.Frame(main_frame, width=250)
         controls.pack(side=tk.RIGHT, fill="y", padx=10, pady=10)
 
@@ -128,11 +165,10 @@ class TSPApp(tk.Tk):
         # Choix de l'algorithme
         ttk.Label(controls, text="Choisir Algorithme:", style="TLabel").pack(pady=2)
         self.algo_var = tk.StringVar(value="GA")
-        algo_menu = ttk.Combobox(controls, textvariable=self.algo_var, values=["GA", "ACO", "Hybride"],
-                                 state="readonly")
+        algo_menu = ttk.Combobox(controls, textvariable=self.algo_var, values=["GA", "ACO", "Hybride"], state="readonly")
         algo_menu.pack(fill="x", pady=5)
 
-        # Contrôle de la vitesse d'animation
+        # Vitesse d'animation
         ttk.Label(controls, text="Vitesse d'animation (ms):", style="TLabel").pack(pady=2)
         self.anim_speed_var = tk.IntVar(value=200)
         anim_speed_scale = ttk.Scale(controls, from_=50, to=500, variable=self.anim_speed_var)
@@ -151,26 +187,120 @@ class TSPApp(tk.Tk):
         # Dessin de la solution enregistrée
         saved_frame = ttk.Labelframe(controls, text="Solution Enregistrée")
         saved_frame.pack(fill="x", pady=10)
-        ttk.Button(saved_frame, text="Dessiner Best (Overlay)",
-                   command=lambda: self._draw_saved_solution(overlay=True)).pack(fill="x", pady=5)
-        ttk.Button(saved_frame, text="Dessiner Best (Alone)",
-                   command=lambda: self._draw_saved_solution(overlay=False)).pack(fill="x", pady=5)
+        ttk.Button(saved_frame, text="Dessiner Best (Overlay)", command=lambda: self._draw_saved_solution(overlay=True)).pack(fill="x", pady=5)
+        ttk.Button(saved_frame, text="Dessiner Best (Alone)", command=lambda: self._draw_saved_solution(overlay=False)).pack(fill="x", pady=5)
 
-        # Informations sur le survol
+        # Infos sur le survol
         self.hover_label = ttk.Label(controls, text="Survol: (x, y)", width=30, style="TLabel")
         self.hover_label.pack(pady=5)
         self.segment_label = ttk.Label(controls, text="Segment: -", width=30, style="TLabel")
         self.segment_label.pack(pady=5)
 
-    ################################################################
+    #########################################################
+    # Création de la page des statistiques
+    #########################################################
+    def _create_stats_page(self):
+        stats_frame = ttk.Frame(self.container, style="TFrame")
+        self.pages['stats'] = stats_frame
+
+        algo_frame = ttk.Labelframe(stats_frame, text="Choix de l'algorithme")
+        algo_frame.pack(pady=10, padx=10, fill="x")
+        self.stats_algo_var = tk.StringVar(value="GA")
+        selector = ttk.Combobox(algo_frame, textvariable=self.stats_algo_var, values=["GA", "ACO", "Hybride"], state="readonly")
+        selector.pack(padx=10, pady=5)
+        selector.bind("<<ComboboxSelected>>", lambda e: self._update_stats_graphs())
+
+        self.stats_fig = plt.Figure(figsize=(12, 5), dpi=100, facecolor="#282c34")
+        self.stats_ax1 = self.stats_fig.add_subplot(131, facecolor="#282c34")
+        self.stats_ax2 = self.stats_fig.add_subplot(132, facecolor="#282c34")
+        self.stats_ax3 = self.stats_fig.add_subplot(133, facecolor="#282c34")
+        for ax in [self.stats_ax1, self.stats_ax2, self.stats_ax3]:
+            ax.title.set_color("#abb2bf")
+            ax.xaxis.label.set_color("#abb2bf")
+            ax.yaxis.label.set_color("#abb2bf")
+            ax.tick_params(axis='x', colors="#abb2bf")
+            ax.tick_params(axis='y', colors="#abb2bf")
+            for spine in ax.spines.values():
+                spine.set_color("#abb2bf")
+        self.canvas_stats = FigureCanvasTkAgg(self.stats_fig, master=stats_frame)
+        self.canvas_stats.draw()
+        self.canvas_stats.get_tk_widget().pack(fill="both", expand=True, padx=10, pady=10)
+
+    #########################################################
+    # Affichage de la page de visualisation
+    #########################################################
+    def _show_canvas_page(self):
+        for page in self.pages.values():
+            page.pack_forget()
+        if 'canvas' in self.pages:
+            self.pages['canvas'].pack(fill="both", expand=True)
+
+    #########################################################
+    # Affichage de la page des statistiques
+    #########################################################
+    def _show_stats_page(self):
+        if self.auto_running:
+            self._stop_auto()
+        for page in self.pages.values():
+            page.pack_forget()
+        if 'stats' in self.pages:
+            self.pages['stats'].pack(fill="both", expand=True)
+            self._start_stats_live_update()
+
+    #########################################################
+    # Mise à jour continue des graphiques de statistiques
+    #########################################################
+    def _start_stats_live_update(self):
+        self._update_stats_graphs()
+        if self.pages['stats'].winfo_ismapped():
+            self.after(1000, self._start_stats_live_update)
+
+    def _update_stats_graphs(self):
+        if not self.pages['stats'].winfo_ismapped():
+            return
+        algo = self.stats_algo_var.get()
+        stats = self.stats_logger.get(algo)
+        dists = stats.get("distances", [])
+        times = stats.get("times", [])
+        self.stats_ax1.clear()
+        self.stats_ax1.set_title(f"{algo} - Distance par génération", color="#abb2bf")
+        self.stats_ax1.set_xlabel("Génération", color="#abb2bf")
+        self.stats_ax1.set_ylabel("Distance", color="#abb2bf")
+        if dists:
+            x_vals = list(range(1, len(dists) + 1))
+            self.stats_ax1.plot(x_vals, dists, marker="o", color="#f72585")
+        else:
+            self.stats_ax1.text(0.5, 0.5, "Pas de données", horizontalalignment='center', color="#abb2bf")
+        self.stats_ax2.clear()
+        self.stats_ax2.set_title(f"{algo} - Temps par génération", color="#abb2bf")
+        self.stats_ax2.set_xlabel("Génération", color="#abb2bf")
+        self.stats_ax2.set_ylabel("Temps (s)", color="#abb2bf")
+        if times:
+            x_vals = list(range(1, len(times) + 1))
+            self.stats_ax2.plot(x_vals, times, marker="x", color="#4cc9f0")
+        else:
+            self.stats_ax2.text(0.5, 0.5, "Pas de données", horizontalalignment='center', color="#abb2bf")
+        all_stats = self.stats_logger.get_all()
+        self.stats_ax3.clear()
+        self.stats_ax3.set_title("Distribution des distances", color="#abb2bf")
+        self.stats_ax3.set_xlabel("Distance", color="#abb2bf")
+        self.stats_ax3.set_ylabel("Fréquence", color="#abb2bf")
+        colors = {"GA": "#f72585", "ACO": "#4cc9f0", "Hybride": "#3a0ca3"}
+        for algo_name, data in all_stats.items():
+            if data["distances"]:
+                self.stats_ax3.hist(data["distances"], bins=10, alpha=0.5, label=algo_name, color=colors.get(algo_name, "#abb2bf"))
+        self.stats_ax3.legend(facecolor="#282c34", labelcolor="#abb2bf")
+        self.canvas_stats.draw()
+
+    #########################################################
     # Gestion du redimensionnement du canvas
-    ################################################################
+    #########################################################
     def _on_canvas_resize(self, event):
         self._refresh_canvas()
 
-    ################################################################
+    #########################################################
     # Génération des villes
-    ################################################################
+    #########################################################
     def _generate_cities(self):
         w = self.canvas.winfo_width()
         h = self.canvas.winfo_height()
@@ -179,14 +309,9 @@ class TSPApp(tk.Tk):
             w = 1200
         if h < 100:
             h = 800
-
         num = self.num_cities_var.get()
-        self.cities = [
-            (random.randint(margin, w - margin), random.randint(margin, h - margin))
-            for _ in range(num)
-        ]
-
-        # Réinitialisation des solutions
+        self.cities = [(random.randint(margin, w - margin), random.randint(margin, h - margin))
+                       for _ in range(num)]
         self.best_distance = float('inf')
         self.best_path = []
         self.best_solution_saved = None
@@ -194,23 +319,29 @@ class TSPApp(tk.Tk):
         self.current_segment_index = 0
         self.is_animating = False
         self.stored_paths.clear()
+        # Réinitialisation de l'état de l'algorithme GA
+        self.ga_generator = None
+        self.ga_instance = None
+        # Réinitialise le logger de stats
+        self.stats_logger.reset()
+        self.canvas.delete("all")  # Assure que le canvas est complètement vidé
         self._refresh_canvas()
         self._update_info_label("Nouvelles villes générées.")
 
-    ################################################################
+    #########################################################
     # Dessin des villes sur le canvas
-    ################################################################
+    #########################################################
     def _draw_cities(self):
         for i, (x, y) in enumerate(self.cities):
             r = 5
             self.canvas.create_oval(x - r, y - r, x + r, y + r,
-                                    fill="#ffffff", outline="#000000", width=1)
+                                      fill="#ffffff", outline="#000000", width=1)
             self.canvas.create_text(x, y - 12, text=str(i + 1),
                                     fill="#ffffff", font=("Helvetica", 9, "bold"))
 
-    ################################################################
+    #########################################################
     # Rafraîchissement complet du canvas
-    ################################################################
+    #########################################################
     def _refresh_canvas(self):
         self.canvas.delete("all")
         w = self.canvas.winfo_width()
@@ -222,9 +353,9 @@ class TSPApp(tk.Tk):
         for (path, color, width) in self.stored_paths:
             self._draw_path(path, color=color, width=width, clear_first=False, store_in_list=False)
 
-    ################################################################
+    #########################################################
     # Dessin de l'image de fond adaptée à la zone
-    ################################################################
+    #########################################################
     def _draw_bg_image(self, x1, y1, x2, y2):
         if self.bg_image:
             zone_width = x2 - x1
@@ -238,9 +369,9 @@ class TSPApp(tk.Tk):
                 print(f"Erreur lors du redimensionnement de l'image: {e}")
                 self.canvas.create_image(x1, y1, anchor="nw", image=self.bg_image)
 
-    ################################################################
+    #########################################################
     # Dessin des axes et graduations
-    ################################################################
+    #########################################################
     def _draw_axes_with_grads(self, w, h, margin, step=50):
         x_start, x_end = margin, w - margin
         y_start, y_end = h - margin, margin
@@ -271,9 +402,9 @@ class TSPApp(tk.Tk):
         self.canvas.create_text(x_start, y_end - 15, text="Y",
                                 fill="white", font=("Helvetica", 9), anchor="sw")
 
-    ################################################################
-    # Calcul de la distance d'un chemin
-    ################################################################
+    #########################################################
+    # Calcul de la distance totale d'un chemin
+    #########################################################
     def _compute_distance(self, path):
         dist = 0
         for i in range(-1, len(path) - 1):
@@ -282,67 +413,117 @@ class TSPApp(tk.Tk):
             dist += math.dist((x1, y1), (x2, y2))
         return dist
 
-    ################################################################
+    #########################################################
     # Mise à jour de l'étiquette d'information
-    ################################################################
+    #########################################################
     def _update_info_label(self, msg=None):
-        dist_txt = f"Meilleure distance: {self.best_distance:.2f}" if self.best_distance < float(
-            'inf') else "Meilleure distance: -"
+        dist_txt = f"Meilleure distance: {self.best_distance:.2f}" if self.best_distance < float('inf') else "Meilleure distance: -"
         text = dist_txt if not msg else f"{dist_txt}\n{msg}"
         self.info_label.config(text=text)
 
-    ################################################################
-    # Lancement de l'algorithme en arrière-plan (avec animation)
-    ################################################################
+    #########################################################
+    # Lancement de l'algorithme en mode animation (en arrière-plan)
+    #########################################################
     def _run_once_thread(self):
-        # Efface les anciens chemins et lance l'algo dans un thread
         self.stored_paths.clear()
         self._refresh_canvas()
         if not self.cities or self.is_animating:
             return
-        thread = threading.Thread(target=self._run_algorithm_background, args=(self.algo_var.get(), False))
-        thread.start()
+        if self.algo_var.get() == "GA":
+            # Lancement step-by-step pour GA (animation)
+            self.next_ga_generation(skip_animation=False, is_auto=False)
+        else:
+            thread = threading.Thread(target=self._run_algorithm_background, args=(self.algo_var.get(), False))
+            thread.start()
 
-    ################################################################
-    # Lancement de l'algorithme en mode "rapide" (sans animation)
-    ################################################################
+    #########################################################
+    # Lancement de l'algorithme en mode rapide (sans animation)
+    #########################################################
     def _run_once_no_animation_thread(self):
         self.stored_paths.clear()
         self._refresh_canvas()
         if not self.cities:
             return
-        thread = threading.Thread(target=self._run_algorithm_background, args=(self.algo_var.get(), False, True))
-        thread.start()
+        if self.algo_var.get() == "GA":
+            # Lancement step-by-step pour GA sans animation
+            self.next_ga_generation(skip_animation=True, is_auto=False)
+        else:
+            thread = threading.Thread(target=self._run_algorithm_background, args=(self.algo_var.get(), False, True))
+            thread.start()
 
-    ################################################################
-    # Méthode lancée en thread pour exécuter l'algorithme
-    ################################################################
+    #########################################################
+    # Exécution de l'algorithme dans un thread pour ACO/Hybride
+    #########################################################
     def _run_algorithm_background(self, algo_name, is_auto, skip_animation=False):
         new_path = self._run_algorithm(algo_name)
         self.after(0, lambda: self._check_and_update_best(new_path, is_auto=is_auto, skip_animation=skip_animation))
 
-    ################################################################
-    # Exécution de l'algorithme selon le choix (GA, ACO, Hybride)
-    ################################################################
     def _run_algorithm(self, algo_name):
         if algo_name == "GA":
-            ga = GeneticAlgorithm(self.cities)
+            # Pour GA, on utilise la version non step-by-step si besoin
+            ga = GeneticAlgorithm(self.cities, logger=self.stats_logger)
             best_path, _ = ga.run()
             return best_path
         elif algo_name == "ACO":
-            aco = AntColony(self.cities)
+            aco = AntColony(self.cities, logger=self.stats_logger)
             best_path, _ = aco.run()
             return best_path
         else:  # Hybride
-            ga = GeneticAlgorithm(self.cities)
+            ga = GeneticAlgorithm(self.cities, logger=self.stats_logger)
             ga_path, _ = ga.run()
-            aco = AntColony(self.cities, initial_path=ga_path)
+            aco = AntColony(self.cities, initial_path=ga_path, logger=self.stats_logger)
             aco_path, _ = aco.run()
             return aco_path
 
-    ################################################################
+    #########################################################
+    # Méthode step-by-step pour GA : chaque appel traite une génération
+    #########################################################
+    def next_ga_generation(self, skip_animation=False, is_auto=False):
+        if self.is_animating:
+            self.after(500, lambda: self.next_ga_generation(skip_animation=skip_animation, is_auto=is_auto))
+            return
+        if not self.ga_generator:
+            max_gen = self.max_gen_var.get()  # Valeur du curseur
+            self.ga_instance = GeneticAlgorithm(
+                self.cities, pop_size=50, max_gen=max_gen, mutation_rate=0.05, elitism_count=10,
+                logger=self.stats_logger
+            )
+            self.ga_generator = self.ga_instance.run_step_by_step()
+        try:
+            result = next(self.ga_generator)
+            self.generation_label.config(text=f"Génération: {result['generation']}")
+            self._update_info_label(
+                f"Génération {result['generation']}: Meilleure distance = {result['best_distance']:.2f} (durée {result['duration']:.2f}s)"
+            )
+            self._update_stats_graphs()
+            self._check_and_update_best(result["best_path"], is_auto=is_auto, skip_animation=skip_animation)
+
+            # Si l'on atteint le maximum (une génération avant le max afin d'éviter les problèmes), on arrête
+            max_gen = self.max_gen_var.get()
+            if result['generation'] >= max_gen - 1:
+                self.generation_label.config(text="Fin des générations GA.")
+                self.after(1000, self._stop_auto)
+                self.ga_generator = None
+                self.ga_instance = None
+            else:
+                if is_auto and self.auto_running and skip_animation:
+                    self.after(1000, self._clear_and_next_ga, skip_animation, is_auto)
+        except StopIteration:
+            self.generation_label.config(text="Fin des générations GA.")
+            self.after(1000, self._stop_auto)
+            self.ga_generator = None
+            self.ga_instance = None
+
+    def _clear_and_next_ga(self, skip_animation, is_auto):
+        self.stored_paths.clear()
+        self.canvas.delete("all")
+        self._refresh_canvas()
+        if self.auto_running:
+            self.next_ga_generation(skip_animation=skip_animation, is_auto=is_auto)
+
+    #########################################################
     # Vérification et mise à jour de la meilleure solution
-    ################################################################
+    #########################################################
     def _check_and_update_best(self, path, is_auto=False, skip_animation=False):
         dist = self._compute_distance(path)
         if dist < self.best_distance:
@@ -368,9 +549,9 @@ class TSPApp(tk.Tk):
             if is_auto and self.auto_running:
                 self.after(5000, self._auto_loop)
 
-    ################################################################
+    #########################################################
     # Animation du tracé du chemin
-    ################################################################
+    #########################################################
     def _animate_path(self, is_auto=False):
         if not self.is_animating:
             return
@@ -383,7 +564,8 @@ class TSPApp(tk.Tk):
             self._update_info_label("Animation terminée.")
             self._add_path_to_stored_paths(path, color="#f72585", width=3)
             if is_auto and self.auto_running:
-                self.after(5000, self._auto_loop)
+                # Attendre 1 seconde après le tracé complet avant de passer à la prochaine génération
+                self.after(1000, self._clear_and_next_ga, False, True)
             return
         if seg_idx > 0:
             self._draw_synthwave_line(path[seg_idx - 1], path[seg_idx], seg_idx - 1)
@@ -404,9 +586,9 @@ class TSPApp(tk.Tk):
     def _add_path_to_stored_paths(self, path, color="#ffa600", width=2):
         self.stored_paths.append((path[:], color, width))
 
-    ################################################################
+    #########################################################
     # Mode automatique
-    ################################################################
+    #########################################################
     def _start_auto(self):
         if self.auto_running:
             return
@@ -417,7 +599,10 @@ class TSPApp(tk.Tk):
         self.stored_paths.clear()
         self._refresh_canvas()
         self.auto_status_label.config(text="ON", foreground="#0F0")
-        self._auto_loop()
+        if self.algo_var.get() == "GA":
+            self.next_ga_generation(skip_animation=False, is_auto=True)
+        else:
+            self._auto_loop()
 
     def _auto_loop(self):
         if not self.auto_running:
@@ -429,16 +614,22 @@ class TSPApp(tk.Tk):
             return
         self.stored_paths.clear()
         self._refresh_canvas()
-        thread = threading.Thread(target=self._run_algorithm_background, args=(self.algo_var.get(), True))
-        thread.start()
+        if self.algo_var.get() == "GA":
+            self.next_ga_generation(skip_animation=True, is_auto=True)
+        else:
+            thread = threading.Thread(target=self._run_algorithm_background, args=(self.algo_var.get(), True, True))
+            thread.start()
 
     def _stop_auto(self):
         self.auto_running = False
         self.auto_status_label.config(text="OFF", foreground="#F00")
+        # Réinitialise le générateur GA pour éviter toute reprise involontaire
+        self.ga_generator = None
+        self.ga_instance = None
 
-    ################################################################
+    #########################################################
     # Dessin de la solution enregistrée
-    ################################################################
+    #########################################################
     def _draw_saved_solution(self, overlay=True):
         if not self.best_solution_saved:
             self._update_info_label("Aucune solution enregistrée à dessiner.")
@@ -450,9 +641,9 @@ class TSPApp(tk.Tk):
         self._draw_path(path, color="#00FF00", width=3, clear_first=False, store_in_list=True)
         self._update_info_label(f"Solution enregistrée dessinée (dist={dist:.2f}).")
 
-    ################################################################
+    #########################################################
     # Dessin rapide d'un chemin avec survol de segments
-    ################################################################
+    #########################################################
     def _draw_path(self, path, color="#ffa600", width=2, clear_first=True, store_in_list=False):
         if clear_first:
             self._refresh_canvas()
@@ -475,9 +666,9 @@ class TSPApp(tk.Tk):
         if store_in_list:
             self.stored_paths.append((path[:], color, width))
 
-    ################################################################
-    # Gestion du survol (ville et segment)
-    ################################################################
+    #########################################################
+    # Gestion du survol (affichage des infos sur la ville ou le segment)
+    #########################################################
     def _on_mouse_move(self, event):
         found_city = False
         for i, (cx, cy) in enumerate(self.cities):

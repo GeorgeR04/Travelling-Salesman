@@ -1,15 +1,17 @@
 import random
 import math
 import concurrent.futures
+import time
 
 class GeneticAlgorithm:
-    def __init__(self, cities, pop_size=50, max_gen=50, mutation_rate=0.05, elitism_count=10):
+    def __init__(self, cities, pop_size=50, max_gen=50, mutation_rate=0.05, elitism_count=10, logger=None):
         self.cities = cities
         self.pop_size = pop_size
         self.max_gen = max_gen
         self.mutation_rate = mutation_rate
         self.n = len(cities)
         self.elitism_count = elitism_count
+        self.logger = logger
 
     def total_distance(self, path):
         # Calcul de la distance totale en fermant la boucle (retour à la ville de départ)
@@ -73,31 +75,71 @@ class GeneticAlgorithm:
         self._mutate(child)
         return child
 
+    def run_step_by_step(self):
+        import time
+        import concurrent.futures
+        population = self._init_population()
+        best_path = None
+        best_fit = -1
+        for gen in range(self.max_gen):
+            start_time = time.time()
+            population_sorted = sorted(population, key=self.fitness, reverse=True)
+            elites = population_sorted[:self.elitism_count]
+
+            num_children = self.pop_size - self.elitism_count
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                children = list(executor.map(lambda _: self._create_child(population), range(num_children)))
+
+            population = elites + children
+
+            for indiv in population:
+                indiv_fit = self.fitness(indiv)
+                if indiv_fit > best_fit:
+                    best_fit = indiv_fit
+                    best_path = indiv[:]
+
+            duration = time.time() - start_time
+            if self.logger:
+                self.logger.log("GA", 1.0 / best_fit, duration, generation=gen)
+
+            # Yield the results of the current generation
+            yield {
+                "generation": gen + 1,  # Generation number starting from 1
+                "best_path": best_path,
+                "best_distance": 1.0 / best_fit,
+                "duration": duration
+            }
+
     def run(self):
         population = self._init_population()
         best_path = None
         best_fit = -1
 
         for gen in range(self.max_gen):
-            # Sélection des meilleurs individus (elitisme)
+            start_time = time.time()
             population_sorted = sorted(population, key=self.fitness, reverse=True)
             elites = population_sorted[:self.elitism_count]
 
-            # Génération des nouveaux individus en parallèle
             num_children = self.pop_size - self.elitism_count
             with concurrent.futures.ThreadPoolExecutor() as executor:
                 children = list(executor.map(lambda _: self._create_child(population), range(num_children)))
 
-            # Constitution de la nouvelle population
             population = elites + children
 
-            # Mise à jour du meilleur individu global
             for indiv in population:
                 indiv_fit = self.fitness(indiv)
                 if indiv_fit > best_fit:
                     best_fit = indiv_fit
                     best_path = indiv[:]
-            print(f"Génération {gen+1} - Meilleure distance: {1.0/best_fit:.2f}")
+
+            duration = time.time() - start_time
+            if self.logger:
+                self.logger.log("GA", 1.0 / best_fit, duration, generation=gen)
+
+            print(f"Génération {gen + 1} - Meilleure distance: {1.0 / best_fit:.2f}")
 
         best_distance = 1.0 / best_fit
         return best_path, best_distance
+
+
+
