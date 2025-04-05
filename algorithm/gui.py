@@ -526,28 +526,26 @@ class TSPApp(tk.Tk):
     #########################################################
     def _check_and_update_best(self, path, is_auto=False, skip_animation=False):
         dist = self._compute_distance(path)
+
+        self._refresh_canvas()
+        self.current_path = path
+        self.current_segment_index = 0
+
+        if not skip_animation:
+            self.is_animating = True
+            self._update_info_label(f"Chemin de génération (dist={dist:.2f})")
+            self._animate_path(is_auto=is_auto)
+        else:
+            self.is_animating = False
+            self._draw_path(path, color="#f72585", width=3, clear_first=False, store_in_list=True)
+            self._update_info_label(f"Chemin de génération (Rapide) (dist={dist:.2f})")
+            if is_auto and self.auto_running:
+                self.after(5000, self._auto_loop)
+
         if dist < self.best_distance:
             self.best_distance = dist
             self.best_path = path
             self.best_solution_saved = (path[:], dist)
-            self._refresh_canvas()
-            self.current_path = path
-            self.current_segment_index = 0
-            if not skip_animation:
-                self.is_animating = True
-                self._update_info_label(f"Nouvelle meilleure solution! (dist={dist:.2f})")
-                self._animate_path(is_auto=is_auto)
-            else:
-                self.is_animating = False
-                self._draw_path(path, color="#f72585", width=3, clear_first=False, store_in_list=True)
-                self._update_info_label(f"Nouvelle meilleure solution (Rapide)! (dist={dist:.2f})")
-                if is_auto and self.auto_running:
-                    self.after(5000, self._auto_loop)
-        else:
-            self._draw_path(path, color="#ffa600", width=2, clear_first=False, store_in_list=True)
-            self._update_info_label(f"Solution non meilleure (dist={dist:.2f})")
-            if is_auto and self.auto_running:
-                self.after(5000, self._auto_loop)
 
     #########################################################
     # Animation du tracé du chemin
