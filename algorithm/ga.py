@@ -12,6 +12,11 @@ class GeneticAlgorithm:
         self.elitism_count = elitism_count
         self.logger = logger
 
+    # ==============
+    # FR:Calcule la distance totale d'un chemin donné en visitant chaque ville dans l'ordre.
+    #
+    # EN:Calculates the total distance of a given path visiting each city in sequence.
+    # =========
     def total_distance(self, path):
         dist = 0
         for i in range(-1, len(path) - 1):
@@ -19,10 +24,20 @@ class GeneticAlgorithm:
             dist += math.dist(city_a, city_b)
         return dist
 
+    # ==============
+    # FR:Évalue la qualité d'un chemin en retournant l'inverse de sa distance.
+    #
+    # EN:Evaluates the fitness of a path by returning the inverse of its total distance.
+    # =========
     def fitness(self, path):
         dist = self.total_distance(path)
         return 1.0 / dist if dist > 0 else float('inf')
 
+    # ==============
+    # FR:Initialise une population aléatoire de chemins, chaque chemin commence par la ville 0.
+    #
+    # EN:Initializes a random population of paths, each starting at city 0.
+    # =========
     def _init_population(self):
         population = []
         for _ in range(self.pop_size):
@@ -33,10 +48,20 @@ class GeneticAlgorithm:
             population.append(indiv)
         return population
 
+    # ==============
+    # FR:Sélectionne un individu par tournoi parmi trois et retourne le plus adapté.
+    #
+    # EN:Selects an individual from a tournament of three and returns the fittest.
+    # =========
     def _selection(self, population):
         tournament = random.sample(population, 3)
         return max(tournament, key=self.fitness)
 
+    # ==============
+    # FR:Effectue un croisement partiel entre deux parents pour créer un enfant.
+    #
+    # EN:Performs partial crossover between two parents to create a child.
+    # =========
     def _crossover(self, p1, p2):
         size = len(p1)
         child = [None] * size
@@ -52,12 +77,22 @@ class GeneticAlgorithm:
         child[0] = 0
         return child
 
+    # ==============
+    # FR:Applique une mutation aléatoire aux gènes du chemin sauf la première ville.
+    #
+    # EN:Applies random mutation to path genes except for the first city.
+    # =========
     def _mutate(self, path):
         for i in range(1, len(path)):
             if random.random() < self.mutation_rate:
                 j = random.randint(1, len(path) - 1)
                 path[i], path[j] = path[j], path[i]
 
+    # ==============
+    # FR:Crée un enfant en sélectionnant deux parents et en appliquant croisement et mutation.
+    #
+    # EN:Creates a child by selecting two parents and applying crossover and mutation.
+    # =========
     def _create_child(self, elite_population):
         parent1 = self._selection(elite_population)
         parent2 = self._selection(elite_population)
@@ -65,6 +100,11 @@ class GeneticAlgorithm:
         self._mutate(child)
         return child
 
+    # ==============
+    # FR:Exécute l'algorithme génétique génération par génération en tant que générateur.
+    #
+    # EN:Runs the genetic algorithm generation by generation as a generator.
+    # =========
     def run_step_by_step(self):
         population = self._init_population()
         best_path = None
@@ -100,6 +140,11 @@ class GeneticAlgorithm:
                 "duration": duration
             }
 
+    # ==============
+    # FR:Exécute l'algorithme génétique et retourne le meilleur chemin trouvé.
+    #
+    # EN:Runs the genetic algorithm and returns the best path found.
+    # =========
     def run(self):
         population = self._init_population()
         best_path = None

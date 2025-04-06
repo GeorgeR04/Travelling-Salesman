@@ -11,13 +11,16 @@ class AntColony:
         self.evap = evap
         self.n = len(cities)
         self.logger = logger
-        # Pheromones init
         self.pheromones = [[0.1] * self.n for _ in range(self.n)]
 
-        # Dépôt initial de phéromones si path fourni
         if initial_path:
             self._deposit_pheromones(initial_path, 5.0 / self._total_distance(initial_path))
 
+    # ==============
+    # FR: Calcule la distance totale d'un chemin donné en visitant chaque ville dans l'ordre.
+    #
+    # EN: Calculates the total distance of a given path visiting each city in sequence.
+    # =========
     def _total_distance(self, path):
         dist = 0
         for i in range(-1, len(path) - 1):
@@ -25,8 +28,12 @@ class AntColony:
             dist += math.dist(city_a, city_b)
         return dist
 
+    # ==============
+    # FR: Sélectionne la prochaine ville à visiter selon une roulette probabiliste influencée par les phéromones et la distance.
+    #
+    # EN: Selects the next city to visit using a roulette-wheel based on pheromones and distance.
+    # =========
     def _select_next(self, current, unvisited):
-        """Choix de la ville suivante par roulette-wheel."""
         probabilities = []
         total = 0.0
 
@@ -50,17 +57,32 @@ class AntColony:
 
         return probabilities[-1][0]
 
+    # ==============
+    # FR: Fait évaporer une partie des phéromones sur tous les chemins.
+    #
+    # EN: Evaporates part of the pheromones across all paths.
+    # =========
     def _evaporate_pheromones(self):
         for i in range(self.n):
             for j in range(self.n):
                 self.pheromones[i][j] = max(self.pheromones[i][j] * (1 - self.evap), 0.001)
 
+    # ==============
+    # FR: Dépose une certaine quantité de phéromones sur un chemin parcouru.
+    #
+    # EN: Deposits a specified amount of pheromones along a given path.
+    # =========
     def _deposit_pheromones(self, path, amount):
         for i in range(-1, len(path) - 1):
             a, b = path[i], path[i+1]
             self.pheromones[a][b] += amount
             self.pheromones[b][a] += amount
 
+    # ==============
+    # FR: Exécute l'algorithme de colonie de fourmis pour trouver un chemin optimal.
+    #
+    # EN: Executes the ant colony algorithm to find an optimal path.
+    # =========
     def run(self):
         import time
         best_path = None
@@ -86,14 +108,10 @@ class AntColony:
                 if dist_path < best_dist:
                     best_path, best_dist = path, dist_path
 
-            # Évaporation globale
             self._evaporate_pheromones()
-
-            # Dépôt sur chaque solution
             for path, dist_path in solutions:
                 self._deposit_pheromones(path, 1.0 / dist_path)
 
-            # Log stats à chaque itération
             duration = time.time() - start_time
             if self.logger:
                 self.logger.log("ACO", best_dist, duration, iteration=it)
