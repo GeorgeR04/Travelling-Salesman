@@ -8,6 +8,7 @@ from ga import GeneticAlgorithm
 from aco import AntColony
 from algorithm.stats_logger import StatsLogger
 from HybridTSP import HybridTSP
+
 class TSPApp(tk.Tk):
     HOVER_RADIUS = 10
 
@@ -98,8 +99,12 @@ class TSPApp(tk.Tk):
         self.max_gen_label = ttk.Label(self.topbar, text=str(self.max_gen_var.get()), style="TLabel")
         self.max_gen_label.pack(side=tk.LEFT, padx=5, pady=5)
         self.max_gen_var.trace_add("write", lambda *args: self.max_gen_label.config(text=str(self.max_gen_var.get())))
-        ttk.Button(self.topbar, text="Visualisation", command=self._show_canvas_page).pack(side=tk.RIGHT, padx=5,                                                                                           pady=5)
+        self.info_label = ttk.Label(self.topbar, text="Meilleure distance: -", style="TLabel")
+        self.info_label.pack(side=tk.LEFT, padx=10, pady=5)
+        ttk.Button(self.topbar, text="Visualisation", command=self._show_canvas_page).pack(side=tk.RIGHT, padx=5,
+                                                                                           pady=5)
         ttk.Button(self.topbar, text="Statistiques", command=self._show_stats_page).pack(side=tk.RIGHT, padx=5, pady=5)
+
         self.container = ttk.Frame(self, style="TFrame")
         self.container.pack(fill="both", expand=True)
         self.pages = {}
@@ -130,11 +135,10 @@ class TSPApp(tk.Tk):
         num_cities_entry = ttk.Entry(ville_frame, textvariable=self.num_cities_var, width=10)
         num_cities_entry.pack(pady=5)
         ttk.Button(ville_frame, text="Générer Villes", command=self._generate_cities).pack(fill="x", pady=5)
-        self.info_label = ttk.Label(ville_frame, text="Meilleure distance: -", style="TLabel")
-        self.info_label.pack(pady=5)
         ttk.Label(controls, text="Choisir Algorithme:", style="TLabel").pack(pady=2)
         self.algo_var = tk.StringVar(value="GA")
-        algo_menu = ttk.Combobox(controls, textvariable=self.algo_var, values=["GA", "ACO", "Hybride"], state="readonly")
+        algo_menu = ttk.Combobox(controls, textvariable=self.algo_var, values=["GA", "ACO", "Hybride"],
+                                 state="readonly")
         algo_menu.pack(fill="x", pady=5)
         ttk.Label(controls, text="Vitesse d'animation (ms):", style="TLabel").pack(pady=2)
         self.anim_speed_var = tk.IntVar(value=200)
@@ -148,8 +152,10 @@ class TSPApp(tk.Tk):
         ttk.Button(auto_frame, text="Stop", command=self._stop_auto).pack(fill="x", pady=5)
         saved_frame = ttk.Labelframe(controls, text="Solution Enregistrée")
         saved_frame.pack(fill="x", pady=10)
-        ttk.Button(saved_frame, text="Dessiner Best (Overlay)", command=lambda: self._draw_saved_solution(overlay=True)).pack(fill="x", pady=5)
-        ttk.Button(saved_frame, text="Dessiner Best (Alone)", command=lambda: self._draw_saved_solution(overlay=False)).pack(fill="x", pady=5)
+        ttk.Button(saved_frame, text="Dessiner Best (Overlay)",
+                   command=lambda: self._draw_saved_solution(overlay=True)).pack(fill="x", pady=5)
+        ttk.Button(saved_frame, text="Dessiner Best (Alone)",
+                   command=lambda: self._draw_saved_solution(overlay=False)).pack(fill="x", pady=5)
         self.hover_label = ttk.Label(controls, text="Survol: (x, y)", width=30, style="TLabel")
         self.hover_label.pack(pady=5)
         self.segment_label = ttk.Label(controls, text="Segment: -", width=30, style="TLabel")
