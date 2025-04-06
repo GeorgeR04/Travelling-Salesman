@@ -3,7 +3,7 @@ import math
 import time
 
 class GeneticAlgorithm:
-    def __init__(self, cities, pop_size=50, max_gen=50, mutation_rate=0.05, elitism_count=10, logger=None):
+    def __init__(self, cities, pop_size=100, max_gen=50, mutation_rate=0.05, elitism_count=10, logger=None):
         self.cities = cities
         self.pop_size = pop_size
         self.max_gen = max_gen

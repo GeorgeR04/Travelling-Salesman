@@ -7,7 +7,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from ga import GeneticAlgorithm
 from aco import AntColony
 from algorithm.stats_logger import StatsLogger
-
+from HybridTSP import HybridTSP
 class TSPApp(tk.Tk):
     HOVER_RADIUS = 10
 
@@ -449,11 +449,15 @@ class TSPApp(tk.Tk):
             best_path, _ = aco.run()
             return best_path
         else:
-            ga = GeneticAlgorithm(self.cities, logger=self.stats_logger)
-            ga_path, _ = ga.run()
-            aco = AntColony(self.cities, initial_path=ga_path, logger=self.stats_logger)
-            aco_path, _ = aco.run()
-            return aco_path
+            hybrid = HybridTSP(
+                self.cities,
+                logger=self.stats_logger,
+                ga_params={"pop_size": 50, "max_gen": self.max_gen_var.get(), "mutation_rate": 0.05,
+                           "elitism_count": 10},
+                aco_params={"ant_count": 20, "iterations": 50}
+            )
+            best_path, _ = hybrid.run()
+            return best_path
 
     # ==============
     # FR: Exécute une génération de l’algorithme génétique (GA).
@@ -465,6 +469,9 @@ class TSPApp(tk.Tk):
             self.after(500, lambda: self.next_ga_generation(skip_animation=skip_animation, is_auto=is_auto))
             return
         if not self.ga_generator:
+            self.stats_logger.reset()
+            self._update_stats_graphs()
+
             max_gen = self.max_gen_var.get()
             self.ga_instance = GeneticAlgorithm(
                 self.cities, pop_size=50, max_gen=max_gen, mutation_rate=0.05, elitism_count=10,
